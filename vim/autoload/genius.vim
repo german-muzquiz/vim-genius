@@ -3,7 +3,8 @@
 let s:genius_bufname = 'prompt.genius'
 let s:genius_output_bufname = 'output.genius'
 let s:default_tag = 'latest'
-let s:default_model = 'bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0'
+let s:default_model = 'openrouter:anthropic/claude-3.5-sonnet'
+"let s:default_model = 'bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0'
 let s:is_processing = 0
 
 " Buffer options
@@ -52,13 +53,11 @@ function! s:execute_buffer() abort
     let l:tmpfile = tempname()
     call writefile(split(l:content, "\n"), l:tmpfile)
 
-    let l:tag = "latest"
-    let l:model = "bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0"
     " Common enviornment variables
-    let l:env = ' -e OPENAI_API_KEY -e ANTHROPIC_KEY -e AWS_PROFILE -e AWS_REGION  -e BRAVE_API_KEY '
+    let l:env = ' -e OPENAI_API_KEY -e ANTHROPIC_KEY -e AWS_PROFILE -e AWS_REGION  -e BRAVE_API_KEY -e OPENROUTER_API_KEY '
     " Volume dirs
     let l:volumes = ' -v $HOME/.aws:/root/.aws -v $PWD:/context '
-    let l:cmd = "/bin/sh -c \"docker run " . l:env . " " . l:volumes . " ghcr.io/german-muzquiz/vim-genius:" . l:tag . " python app/main.py --prompt '" . l:content ."' --model '" . l:model . "'\""
+    let l:cmd = "/bin/sh -c \"docker run " . l:env . " " . l:volumes . " ghcr.io/german-muzquiz/vim-genius:" . s:default_tag . " python app/main.py --prompt '" . l:content ."' --model '" . s:default_model . "'\""
     "echom l:cmd
 
     " Create or get output buffer
@@ -109,8 +108,9 @@ endfunction
 
 " This callback gets called every time new output is received:
 function! s:on_job_output(job_id, data, output_buf) abort
-    call append(line('$'), split(a:data, "\n"))
-    "silent execute 'normal! G'
+    " Append the raw data to preserve newlines
+    call append(line('$'), a:data)
+    redraw
 endfunction
 
 
@@ -178,11 +178,17 @@ function! genius#complete_filepath(findstart, base) abort
         endfor
     endif
 
-    " Set up autocompletion callback for directories
-    augroup GeniusCompletion
-        autocmd!
-        autocmd CompleteDone * if v:completed_item.user_data == 'dir' | call timer_start(0, {-> s:trigger_completion_after_dir()}) | endif
-    augroup END
+    " Set up autocompletion callback for directories only if we have a completed item
+    if !empty(v:completed_item)
+        augroup GeniusCompletion
+            autocmd!
+            if has_key(v:completed_item, 'user_data')
+                if v:completed_item.user_data == 'dir'
+                    call timer_start(0, {-> s:trigger_completion_after_dir()})
+                endif
+            endif
+        augroup END
+    endif
 
     return files
 endfunction

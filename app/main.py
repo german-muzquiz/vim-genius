@@ -10,6 +10,7 @@ import sys
 from typing import Optional
 
 import httpx
+from crawl4ai import AsyncWebCrawler, BrowserConfig
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models import Model
@@ -34,34 +35,51 @@ You are an expert coding assistant.
 
 Instructions for your output format:
 - Output code without descriptions, unless it is important.
-- Minimize prose and empty lines.
+- Minimize prose, output directly code blocks preceded by the file name if applicable.
 - Make it easy to copy and paste.
 - Consider other possibilities to achieve the result, do not be limited by the prompt.
+
 - For each code piece in the output use the appropriate code block syntax. For example for python code blocks use this syntax:
 ```python
 def sum(a: int, b: int) -> int:
     pass
 ```
-- For each file of the code that needs to be modified, produce a separate code block showing the added, deleted and changed lines in diff format.
+
+- For each file of the code that needs to be modified, produce a separate code block showing the added, deleted and changed lines in diff unified format.
 Example:
-diff --git a/pyproject.toml b/pyproject.toml
-```
+
+`pyproject.toml`
+```diff
 --- a/pyproject.toml
-@@ [project]
++++ b/pyproject.toml
+@@ -1,7 +1,6 @@
+[project]
 -dependencies = [
 -]
 +dependencies = [
-    "smolagents>=0.0.1",
++    "smolagents>=0.0.1",
 +]
+@@ -9,3 +8,6 @@
+[tool.poetry.scripts]
+-smolagents = "smolagents.cli:main"
++smolagents = "smolagents.cli:main"
++
++[tool.poetry.dependencies]
++smolagents = "^0.0.1"
 ```
+
 - For each new file produce a separate code block.
 Example:
+`new_file.py`
 ```python
 class A:
     pass
 ```
+
+- Every code block should be surrounded by empty blank lines to improve readablity.
 - All functions should be smaller than 30 lines, refactor to helper functions when appropriate.
 - Add comments to the code to make it easy to understand.
+- For python code always use docstrings to document public functions, classes and modules.
 """  # noqa: E501
 
 
@@ -139,18 +157,41 @@ def create_model(model_name: str) -> Model:
             return AnthropicModel(model_name.split(":", 1)[1])
         case "bedrock":
             return BedrockModel(model_name.split(":", 1)[1])
+        case "openrouter":
+            return OpenAIModel(
+                model_name.split(":", 1)[1],
+                api_key=os.getenv("OPENROUTER_API_KEY"),
+                base_url="https://openrouter.ai/api/v1",
+            )
         case _:
             raise ValueError(f"Unknown model family: {model_family}")
 
 
-def inject_entry(entry: str) -> dict[str, str]:
+async def load_url_content(url: str) -> str:
+    browser_config = BrowserConfig(verbose=False)
+    async with AsyncWebCrawler(config=browser_config) as crawler:
+        print(f"Loading URL: {url}")
+        result = await crawler.arun(url)
+        return result.markdown
+
+
+async def inject_entry(entry: str) -> dict[str, str]:
     result: dict[str, str] = {}
+    entry = entry.strip()
+
+    # Url loading
+    if entry.startswith("http"):
+        content = await load_url_content(entry)
+        result[entry] = content
+        return result
+
+    # File loading
     if not os.path.isabs(entry):
         entry = os.path.join("/context", entry)
     if os.path.isdir(entry):
         # For reproducible order, sort the file list.
         for dir_entry in sorted(os.listdir(entry)):
-            result.update(inject_entry(os.path.join(entry, dir_entry)))
+            result.update(await inject_entry(os.path.join(entry, dir_entry)))
     elif os.path.isfile(entry):
         content = load_file_content(entry)
         result[entry] = content
@@ -159,14 +200,18 @@ def inject_entry(entry: str) -> dict[str, str]:
     return result
 
 
-def inject_context(user_input: str) -> str:
+async def inject_context(user_input: str) -> str:
     # This regex finds tokens such as "@filename" or "@folder/"
     tokens = re.findall(r"@(\S+)", user_input)
     injection_chunks: list[str] = []
     for token in tokens:
-        for file_path, content in inject_entry(token).items():
-            file_extension = os.path.splitext(file_path)[1][1:] or os.path.basename(file_path)
-            injection_chunks.append(f"{file_path}\n```{file_extension}\n{content}\n```")
+        context = await inject_entry(token)
+        for file_path, content in context.items():
+            if file_path.startswith("http"):
+                file_extension = "md"
+            else:
+                file_extension = os.path.splitext(file_path)[1][1:] or os.path.basename(file_path)
+            injection_chunks.append(f"`{file_path}` contents:\n```{file_extension}\n{content}\n```")
 
     # Remove all @tokens from the original user prompt.
     adjusted_prompt = re.sub(r"@\S+", "", user_input)
@@ -211,7 +256,7 @@ async def main() -> None:
         print_usage()
         sys.exit(1)
 
-    user_prompt = inject_context(prompt)
+    user_prompt = await inject_context(prompt)
 
     # print("User prompt:")
     # print(user_prompt)
@@ -220,10 +265,11 @@ async def main() -> None:
         create_model(model_name),
         system_prompt=_SYSTEM_PROMPT,
         deps_type=Deps,
-        # tools=[Tool(web_search, takes_ctx=True)],  Commented until https://github.com/pydantic/pydantic-ai/pull/833 is merged
         result_type=str,
         retries=2,
     )
+
+    print(f"==> Thinking with model: {model_name}...\n")
 
     async with agent.run_stream(
         user_prompt,

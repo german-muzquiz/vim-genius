@@ -11,8 +11,10 @@ COPY pyproject.toml /code/pyproject.toml
 COPY uv.lock /code/uv.lock
 
 # Install dependencies
-RUN uv lock --upgrade && \
-    uv sync --frozen --no-cache --no-install-project --no-editable --no-group dev
+RUN uv sync --frozen --no-install-project --no-editable --no-group dev
+
+# craw4ai prerequisites
+RUN crawl4ai-setup
 
 # Copy source code
 COPY ./app /code/app

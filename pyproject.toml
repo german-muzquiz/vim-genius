@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv~=1.0",
     "pydantic-ai-bedrock>=0.1.8",
     "httpx>=0.24.1",
+    "crawl4ai>=0.4.248",
 ]
 
 [project.urls]
@@ -53,6 +54,7 @@ plugins = "pydantic.mypy"
 ignore_missing_imports = true
 module = [
     "pydantic_ai.*",
+    "crawl4ai.*",
 ]
 
 [tool.ruff]
