@@ -3,7 +3,8 @@
 let s:genius_bufname = 'prompt.genius'
 let s:genius_output_bufname = 'output.genius'
 let s:default_tag = 'latest'
-let s:default_model = 'openrouter:anthropic/claude-3.5-sonnet'
+let s:genius_config_file = expand('~/.vim_genius')
+"let s:default_model = 'openrouter:anthropic/claude-3.5-sonnet'
 "let s:default_model = 'bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0'
 let s:is_processing = 0
 
@@ -13,6 +14,50 @@ let s:buffer_options = {
     \ 'buftype': 'nofile',
     \ 'filetype': 'genius',
     \ }
+
+" Prompt header
+let s:prompt_header = [
+    \ '# ----------------------------------------------------------------------',
+    \ '# Help',
+    \ '# <leader>r - Sends the current prompt to the LLM',
+    \ '# <leader>c - Opens the Genius configuration file',
+    \ '#',
+    \ '# Inject files and folders:',
+    \ '# @folder/ - Injects the contents of the folder into the prompt',
+    \ '# @file - Injects the contents of the file into the prompt',
+    \ '# @https://abc.com - Injects the contents of the URL into the prompt',
+    \ '# ----------------------------------------------------------------------',
+    \ '',
+    \ ]
+
+" Create and setup the genius config file
+function! genius#open_config() abort
+    " Create config file if it doesn't exist
+    if !filereadable(s:genius_config_file)
+        let l:default_config = [
+            \ '# ---------------------------------------------------------------------',
+            \ '# Vim Genius configuration settings',
+            \ '# ---------------------------------------------------------------------',
+            \ '# API family for the LLM to be used. Must be one of: openai, anthropic, bedrock or openrouter',
+            \ 'API_FAMILY=',
+            \ '',
+            \ '# LLM model name to use as indicated by the API family documentation',
+            \ 'MODEL_NAME=',
+            \ '',
+            \ '# API key for authentication.',
+            \ '# If API_FAMILY is set to bedrock this is not required as AWS credentials are read from the environment and $HOME/.aws/credentials and $HOME/.aws/config files',
+            \ 'MODEL_API_KEY='
+            \ ]
+        call writefile(l:default_config, s:genius_config_file)
+    endif
+    
+    " Open config file in a new buffer
+    execute 'edit ' . s:genius_config_file
+    
+    " Set buffer options
+    setlocal filetype=sh
+endfunction
+
 
 " Create and setup the genius input buffer
 function! genius#open_genius_buffer() abort
@@ -27,13 +72,20 @@ function! genius#open_genius_buffer() abort
     call s:setup_buffer_settings(l:buf)
     
     " Switch to the buffer
-     execute 'buffer' l:buf
+    execute 'buffer' l:buf
+
+    " Inject header into buffer
+    call setline(1, s:prompt_header)
+
+    " Move to the end of the buffer
+    normal! G
 
     " Set up autocompletion
     setlocal completefunc=genius#complete_filepath
 
     " Set buffer-local keymap
-    nnoremap <buffer> <leader>rf :call <SID>execute_buffer()<CR>
+    nnoremap <buffer> <leader>r :call <SID>execute_buffer()<CR>
+    nnoremap <buffer> <leader>c :call genius#open_config()<CR>
 endfunction
 
 
@@ -46,18 +98,22 @@ endfunction
 
 " Execute the buffer content using the LLM
 function! s:execute_buffer() abort
-    " Get buffer content
-    let l:content = join(getline(1, '$'), "\n")
+    " Get buffer content except header
+    let l:content = join(getline(len(s:prompt_header), '$'), "\n")
 
     " Create temporary file
     let l:tmpfile = tempname()
     call writefile(split(l:content, "\n"), l:tmpfile)
 
-    " Common enviornment variables
-    let l:env = ' -e OPENAI_API_KEY -e ANTHROPIC_KEY -e AWS_PROFILE -e AWS_REGION  -e BRAVE_API_KEY -e OPENROUTER_API_KEY '
-    " Volume dirs
-    let l:volumes = ' -v $HOME/.aws:/root/.aws -v $PWD:/context '
-    let l:cmd = "/bin/sh -c \"docker run " . l:env . " " . l:volumes . " ghcr.io/german-muzquiz/vim-genius:" . s:default_tag . " python app/main.py --prompt '" . l:content ."' --model '" . s:default_model . "'\""
+    " Add AWS environment variables only if API_FAMILY is bedrock
+    if filereadable(s:genius_config_file) && system('grep "^API_FAMILY=bedrock" ' . s:genius_config_file) != ''
+        let l:env = '-e AWS_PROFILE -e AWS_REGION -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN'
+        let l:volumes = '-v $HOME/.aws:/root/.aws -v ' . s:genius_config_file . ':/root/.vim_genius -v $PWD:/context'
+    else
+        let l:env = ''
+        let l:volumes = '-v ' . s:genius_config_file . ':/root/.vim_genius -v $PWD:/context'
+    endif
+    let l:cmd = "/bin/sh -c \"docker run --rm " . l:env . " " . l:volumes . " ghcr.io/german-muzquiz/vim-genius:" . s:default_tag . " python app/main.py --prompt '" . l:content ."'"
     "echom l:cmd
 
     " Create or get output buffer
@@ -108,8 +164,7 @@ endfunction
 
 " This callback gets called every time new output is received:
 function! s:on_job_output(job_id, data, output_buf) abort
-    " Append the raw data to preserve newlines
-    call append(line('$'), a:data)
+    call appendbufline(a:output_buf, '$', a:data)
     redraw
 endfunction
 

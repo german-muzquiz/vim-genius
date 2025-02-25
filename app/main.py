@@ -11,6 +11,7 @@ from typing import Optional
 
 import httpx
 from crawl4ai import AsyncWebCrawler, BrowserConfig
+from dotenv import load_dotenv
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models import Model
@@ -33,11 +34,11 @@ logging.basicConfig(
 _SYSTEM_PROMPT = """
 You are an expert coding assistant.
 
-Instructions for your output format:
+<output_format_instructions>
 - Output code without descriptions, unless it is important.
 - Minimize prose, output directly code blocks preceded by the file name if applicable.
+- Limit lines to 100 characters, except for code blocks.
 - Make it easy to copy and paste.
-- Consider other possibilities to achieve the result, do not be limited by the prompt.
 
 - For each code piece in the output use the appropriate code block syntax. For example for python code blocks use this syntax:
 ```python
@@ -77,6 +78,9 @@ class A:
 ```
 
 - Every code block should be surrounded by empty blank lines to improve readablity.
+</output_format_instructions>
+
+- Consider other possibilities to achieve the result, do not be limited by the prompt.
 - All functions should be smaller than 30 lines, refactor to helper functions when appropriate.
 - Add comments to the code to make it easy to understand.
 - For python code always use docstrings to document public functions, classes and modules.
@@ -86,7 +90,7 @@ class A:
 class Deps(BaseModel):
     """Dependencies injected into tools."""
 
-    brave_api_key: str
+    brave_api_key: Optional[str]
 
 
 class WebSearchResult(BaseModel):
@@ -124,47 +128,66 @@ def load_file_content(file: str) -> str:
     return content
 
 
-def parse_args() -> tuple[Optional[str], Optional[str]]:
+def parse_args() -> Optional[str]:
     """
     Parse command line arguments.
 
     Returns:
-        Tuple of (prompt, model_name)
+        Prompt
     """
     args = sys.argv[1:]
     prompt: Optional[str] = None
-    model_name: Optional[str] = None
 
     if "--prompt" in args:
         idx = args.index("--prompt")
         if idx + 1 < len(args):
             prompt = args[idx + 1]
 
-    if "--model" in args:
-        idx = args.index("--model")
-        if idx + 1 < len(args):
-            model_name = args[idx + 1]
-
-    return prompt, model_name
+    return prompt
 
 
-def create_model(model_name: str) -> Model:
-    model_family = model_name.split(":", 1)[0]
-    match model_family:
+def validate_config() -> None:
+    """Validate configuration settings."""
+    api_family = os.getenv("API_FAMILY", "")
+    model_name = os.getenv("MODEL_NAME", "")
+    model_api_key = os.getenv("MODEL_API_KEY", "")
+
+    if not api_family or not model_name:
+        raise ValueError("API_FAMILY and MODEL_NAME must be set in ~/.vim_genius")
+
+    if api_family != "bedrock" and not model_api_key:
+        raise ValueError("MODEL_API_KEY must be set in ~/.vim_genius for non-bedrock APIs")
+
+
+def create_model(api_family: str, model_name: str, api_key: str) -> Model:
+    match api_family:
         case "openai":
-            return OpenAIModel(model_name.split(":", 1)[1])
+            return OpenAIModel(model_name, api_key=api_key)
         case "anthropic":
-            return AnthropicModel(model_name.split(":", 1)[1])
+            return AnthropicModel(model_name, api_key=api_key)
         case "bedrock":
-            return BedrockModel(model_name.split(":", 1)[1])
+            return BedrockModel(model_name)
         case "openrouter":
             return OpenAIModel(
-                model_name.split(":", 1)[1],
-                api_key=os.getenv("OPENROUTER_API_KEY"),
+                model_name,
+                api_key=api_key,
                 base_url="https://openrouter.ai/api/v1",
             )
         case _:
-            raise ValueError(f"Unknown model family: {model_family}")
+            raise ValueError(f"Unknown model api family: {api_family}")
+
+
+def load_config() -> None:
+    """
+    Load configuration from ~/.vim_genius file into environment variables.
+    """
+    # Config file is in user home directory
+    config_file = os.path.expanduser("~/.vim_genius")
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(f"Configuration file not found: {config_file}")
+
+    # Load environment variables from config file
+    load_dotenv(config_file)
 
 
 async def load_url_content(url: str) -> str:
@@ -234,6 +257,7 @@ def web_search(ctx: RunContext[Deps], query: str) -> list[WebSearchResult]:
     Returns:
         A list of WebSearchResult objects.
     """
+    assert ctx.deps.brave_api_key
     with httpx.Client() as client:
         response = client.get(
             "https://api.search.brave.com/res/v1/web/search",
@@ -247,22 +271,64 @@ def web_search(ctx: RunContext[Deps], query: str) -> list[WebSearchResult]:
         ]
 
 
+class LineBuffer:
+    """
+    A buffer that accumulates text and outputs complete lines.
+    """
+
+    def __init__(self):
+        self.buffer = ""
+
+    def add_text(self, text: str) -> list[str]:
+        """
+        Add text to the buffer and return any complete lines.
+
+        Args:
+            text: The text to add to the buffer
+
+        Returns:
+            A list of complete lines
+        """
+        self.buffer += text
+        lines = []
+
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            lines.append(line)
+
+        return lines
+
+    def get_remaining(self) -> str:
+        """
+        Get any remaining text in the buffer.
+
+        Returns:
+            The remaining text
+        """
+        return self.buffer
+
+
 async def main() -> None:
     """Main entry point of the program."""
-    prompt, model_name = parse_args()
+    prompt = parse_args()
+    load_config()
 
-    if not prompt or not model_name:
-        logging.error("Error: --prompt and --model are mandatory arguments")
+    if not prompt:
+        logging.error("Error: --prompt is a mandatory argument")
         print_usage()
         sys.exit(1)
 
     user_prompt = await inject_context(prompt)
+    validate_config()
+    model_api_family = os.getenv("API_FAMILY", "")
+    model_name = os.getenv("MODEL_NAME", "")
+    model_api_key = os.getenv("MODEL_API_KEY", "")
 
     # print("User prompt:")
     # print(user_prompt)
 
     agent = Agent(
-        create_model(model_name),
+        create_model(model_api_family, model_name, model_api_key),
         system_prompt=_SYSTEM_PROMPT,
         deps_type=Deps,
         result_type=str,
@@ -271,14 +337,39 @@ async def main() -> None:
 
     print(f"==> Thinking with model: {model_name}...\n")
 
+    # Create a line buffer to accumulate text
+    line_buffer = LineBuffer()
+
     async with agent.run_stream(
         user_prompt,
         deps=Deps(brave_api_key=os.getenv("BRAVE_API_KEY")),
         model_settings=ModelSettings(max_tokens=8192, temperature=0.0),
     ) as result:
         async for message in result.stream_text(delta=True):
-            print(message, end="", flush=True)
-        print("")
+            # Add the message to the buffer and get any complete lines
+            complete_lines = line_buffer.add_text(message)
+
+            # Output each complete line
+            for line in complete_lines:
+                print(line)
+
+        # Output any remaining text in the buffer
+        remaining = line_buffer.get_remaining()
+        if remaining:
+            print(remaining)
+
+        # Print token usage information at the end of the output
+        usage = result.usage()
+        print("\n" + "-" * 80)
+        print("Token Usage Summary:")
+        print(f"  Requests: {usage.requests}")
+        if usage.request_tokens is not None:
+            print(f"  Request tokens: {usage.request_tokens}")
+        if usage.response_tokens is not None:
+            print(f"  Response tokens: {usage.response_tokens}")
+        if usage.total_tokens is not None:
+            print(f"  Total tokens: {usage.total_tokens}")
+        print("-" * 80)
 
 
 if __name__ == "__main__":

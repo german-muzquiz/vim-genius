@@ -9,6 +9,7 @@ let g:loaded_vim_genius = 1
 let g:markdown_fenced_languages = ['html', 'python', 'bash=sh', 'diff', 'json', 'vim']
 
 command! -nargs=0 Genius call genius#open_genius_buffer()
+command! -nargs=0 GeniusConfig call genius#open_config()
 
 " Set up status line
 set statusline+=%{genius#status()}
