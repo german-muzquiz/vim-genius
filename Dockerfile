@@ -17,5 +17,7 @@ RUN uv sync --frozen --no-install-project --no-editable --no-group dev
 RUN crawl4ai-setup
 
 # Copy source code
-COPY ./app /code/app
+COPY ./vim_genius /code/vim_genius
 
+# Install source code
+RUN uv pip install --system .

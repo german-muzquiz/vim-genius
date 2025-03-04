@@ -1,0 +1,101 @@
+*genius.txt*  AI code assistant for Vim
+
+==============================================================================
+CONTENTS                                                      *genius-contents*
+
+    1. Introduction ........................... |genius-introduction|
+    2. Installation ........................... |genius-installation|
+    3. Configuration .......................... |genius-configuration|
+    4. Usage .................................. |genius-usage|
+    5. Commands ............................... |genius-commands|
+    6. Mappings ............................... |genius-mappings|
+    7. Tips and Tricks ........................ |genius-tips|
+
+==============================================================================
+1. Introduction                                           *genius-introduction*
+
+Genius is a Vim plugin that provides AI-powered code assistance directly in
+your editor. It uses a Docker container to communicate with various LLM APIs
+to generate code suggestions based on your prompts.
+
+==============================================================================
+2. Installation                                           *genius-installation*
+
+Prerequisites:
+- Vim 8.0+ with Python support
+- Docker installed and running
+
+Install using your favorite plugin manager. For example, with vim-plug:
+
+    Plug 'german-muzquiz/vim-genius'
+
+After installation, run the following command to set up your configuration:
+
+    :GeniusConfig
+
+==============================================================================
+3. Configuration                                         *genius-configuration*
+
+Genius uses a configuration file located at ~/.vim_genius. You can edit this
+file directly or use the :GeniusConfig command.
+
+Required settings:
+- API_FAMILY: The API provider (openai, anthropic, bedrock, openrouter)
+- MODEL_NAME: The model name to use
+- MODEL_API_KEY: Your API key (not needed for bedrock)
+
+Example configuration:
+```
+API_FAMILY=openai
+MODEL_NAME=gpt-4
+MODEL_API_KEY=your-api-key-here
+```
+
+==============================================================================
+4. Usage                                                       *genius-usage*
+
+Basic workflow:
+1. Open the Genius prompt buffer with :Genius or <leader>g
+2. Type your prompt
+3. Press <leader>r to send the prompt to the LLM
+4. View the response in the output window
+
+Special syntax in prompts:
+- @file - Injects the contents of the file into the prompt
+- @folder/ - Injects the contents of the folder into the prompt
+- @https://abc.com - Injects the contents of the URL into the prompt
+
+==============================================================================
+5. Commands                                                   *genius-commands*
+
+:Genius                  Open the Genius prompt buffer
+:GeniusConfig            Open the Genius configuration file
+:GeniusHistory           Show prompt history
+:GeniusToggleOutput      Toggle the output window
+
+==============================================================================
+6. Mappings                                                   *genius-mappings*
+
+Global mappings:
+<leader>g                Open the Genius prompt buffer
+
+In the prompt buffer:
+<leader>r                Send the prompt to the LLM
+<leader>c                Open the configuration file
+<leader>h                Show prompt history
+<leader>o                Toggle output window
+
+In the output buffer:
+<leader>y                Yank (copy) the current code block
+<leader>a                Apply a diff from the output
+
+==============================================================================
+7. Tips and Tricks                                               *genius-tips*
+
+- Use Tab completion after typing @ to quickly insert file paths
+- View your prompt history with <leader>h to reuse previous prompts
+- In the output buffer, use <leader>y to copy code blocks
+- Use <leader>a in the output buffer to automatically apply diffs
+
+ vim:tw=78:ts=8:ft=help:norl:
+
