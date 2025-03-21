@@ -74,7 +74,7 @@ async def inject_entry(entry: str) -> Dict[str, str]:
 
     # File loading
     if not os.path.isabs(entry):
-        entry = os.path.join("/context", entry)
+        entry = os.path.join("/workspace", entry)
     if os.path.isdir(entry):
         # For reproducible order, sort the file list.
         for dir_entry in sorted(os.listdir(entry)):
@@ -107,8 +107,8 @@ async def inject_context(user_input: str) -> str:
             if file_path.startswith("http"):
                 url_injection_chunks.append(f"  <web_resource url={file_path}>\n{content}\n  </web_resource>")
             else:
-                if file_path.startswith("/context/"):
-                    file_path = file_path[len("/context/") :]  # noqa: PLW2901
+                if file_path.startswith("/workspace/"):
+                    file_path = file_path[len("/workspace/") :]  # noqa: PLW2901
                 file_injection_chunks.append(f"  <project_file filename={file_path}>\n{content}\n  </project_file>")
 
     # Remove all @tokens from the original user prompt.

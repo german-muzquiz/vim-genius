@@ -18,10 +18,13 @@ def read_prompt_file() -> str:
     Returns:
         Prompt content or None if file doesn't exist
     """
-    prompt_file = "/prompt/prompt.txt"
+    prompt_file = "/root/.genius/current_chat.genius"
     if os.path.exists(prompt_file):
         with open(prompt_file, "r", encoding="utf-8") as f:
-            return f.read()
+            contents = f.read()
+            # Remove header (first 12 lines)
+            contents = "\n".join(contents.split("\n")[12:])
+            return contents
     return ""
 
 

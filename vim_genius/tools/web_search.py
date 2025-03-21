@@ -19,6 +19,7 @@ def web_search(ctx: RunContext[Deps], query: str) -> list[WebSearchResult]:
     Returns:
         A list of WebSearchResult objects.
     """
+    print(f"\n<web_search>Searching the web for: {query}</web_search>\n")
     assert ctx.deps.brave_api_key
     with httpx.Client() as client:
         response = client.get(

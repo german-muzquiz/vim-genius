@@ -13,10 +13,10 @@ from pydantic_ai_bedrock.bedrock import BedrockModel
 
 def load_config() -> None:
     """
-    Load configuration from ~/.vim_genius file into environment variables.
+    Load configuration from ~/.genius/config.env file into environment variables.
     """
     # Config file is in user home directory
-    config_file = os.path.expanduser("~/.vim_genius")
+    config_file = os.path.expanduser("~/.genius/config.env")
     if not os.path.exists(config_file):
         raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
