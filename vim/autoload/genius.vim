@@ -196,7 +196,7 @@ function! s:execute_buffer() abort
 
     let l:volumes = s:get_volumes_to_mount()
     let l:env = s:get_env_vars_to_mount()
-    let l:cmd = "/bin/sh -c \"docker run --rm " . l:env . " " . l:volumes . " ghcr.io/german-muzquiz/vim-genius:" . s:default_tag . " python -m vim_genius.main"
+    let l:cmd = "/bin/sh -c \"docker run --rm " . l:env . " " . l:volumes . " ghcr.io/german-muzquiz/vim-genius:" . s:default_tag . " python -m vim_genius.main\""
     "echom l:cmd
 
     " Create or get output buffer
