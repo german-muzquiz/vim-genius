@@ -30,11 +30,12 @@ let s:buffer_options = {
 let s:prompt_header = [
     \ '---------------------------------------------------------------------------------',
     \ 'Help',
-    \ '<Enter> - Sends the current prompt to the LLM',
-    \ '<leader>h - Show prompt history',
-    \ '<leader>c - Opens the Genius configuration file',
+    \ '<leader>r - Sends the current chat file to the LLM',
+    \ '<leader>d - Opens diff view with the proposed changes',
+    \ '<leader>h - Show chat history',
+    \ '<leader>c - Opens the configuration file',
     \ '',
-    \ 'Inject files and folders:',
+    \ 'Add context:',
     \ '@folder/ - Injects the contents of the folder into the prompt',
     \ '@file - Injects the contents of the file into the prompt',
     \ '@https://abc.com - Injects the contents of the URL into the prompt',
@@ -82,6 +83,12 @@ function! genius#open_genius_chat(new_chat=0) abort
     if a:new_chat || !filereadable(s:genius_prompt_file)
         " Create a new file for the prompt
         call writefile(s:prompt_header, s:genius_prompt_file)
+        
+        " Clean up the staging folder when creating a new chat
+        if isdirectory(s:genius_staging_folder)
+            call delete(s:genius_staging_folder, 'rf')
+        endif
+        call mkdir(s:genius_staging_folder, "p", 0700)
         let l:is_new_file = 1
     endif
 
@@ -102,6 +109,8 @@ function! genius#open_genius_chat(new_chat=0) abort
     " Load the contents of the genius prompt file into the buffer
     if l:is_new_buf
         call setbufline(l:buf, 1, readfile(s:genius_prompt_file))
+        " Append new line
+        call append(line('$'), '')
         if l:is_new_file
             normal G
         endif
@@ -111,7 +120,7 @@ function! genius#open_genius_chat(new_chat=0) abort
     setlocal completefunc=s:complete_filepath
 
     " Set buffer-local keymap
-    nnoremap <buffer> <Enter> :call <SID>execute_buffer()<CR>
+    nnoremap <buffer> <leader>r :call <SID>execute_buffer()<CR>
     nnoremap <buffer> <leader>h :call genius#show_history()<CR>
     nnoremap <buffer> <leader>c :call genius#open_config()<CR>
     nnoremap <buffer> <leader>d :call <SID>show_staging_tree()<CR>
@@ -532,54 +541,6 @@ function! genius#extract_operation_from_tag(line) abort
 endfunction
 
 
-" Function to extract code blocks from the output buffer
-function! s:extract_code_blocks() abort
-    let l:output_buf = bufnr(s:genius_bufname)
-    if l:output_buf == -1
-        echo "Output buffer not found"
-        return {}
-    endif
-    
-    let l:lines = getbufline(l:output_buf, 1, '$')
-    let l:total_lines = len(l:lines)
-    let l:line_idx = 0
-    let l:code_blocks = {}
-    
-    " Iterate through all lines in the buffer
-    while l:line_idx < l:total_lines
-        let l:line = l:lines[l:line_idx]
-        
-        " Check if this line contains a code block start
-        if l:line =~ '<code_block'
-            " Extract filename, operation, and filetype
-            let l:filename = genius#extract_filename_from_tag(l:line)
-            let l:operation = genius#extract_operation_from_tag(l:line)
-            let l:filetype = matchlist(l:line, 'filetype="\([^"]*\)"')[1]
-            
-            " Start collecting content
-            let l:content = []
-            let l:line_idx += 1
-            
-            " Collect content until the end of the code block
-            while l:line_idx < l:total_lines && l:lines[l:line_idx] !~ '</code_block>'
-                call add(l:content, l:lines[l:line_idx])
-                let l:line_idx += 1
-            endwhile
-            
-            " Store the code block
-            let l:code_blocks[l:filename] = {
-                \ 'operation': l:operation,
-                \ 'filetype': l:filetype,
-                \ 'content': l:content
-                \ }
-        endif
-        
-        let l:line_idx += 1
-    endwhile
-    
-    return l:code_blocks
-endfunction
-
 " Show the tree view of files in the staging folder
 function! s:show_staging_tree() abort
     " Create or get tree buffer
@@ -595,11 +556,13 @@ function! s:show_staging_tree() abort
     let l:tree_win = bufwinnr(l:tree_buf)
     
     if l:tree_win == -1
-        execute 'vertical leftabove 40split | buffer' l:tree_buf
+        execute 'buffer' l:tree_buf
     else
         " Tree buffer is displayed, switch to its window
         execute l:tree_win . 'wincmd w'
     endif
+
+    execute 'wincmd o'
     
     " Clear and set tree buffer content
     silent %delete _
@@ -641,8 +604,8 @@ function! s:show_staging_tree() abort
     call append(line('$'), [''] + map(l:added_files, '"+ " . v:val') + map(l:updated_files, '"~ " . v:val') + map(l:deleted_files, '"- " . v:val'))
     
     " Set up mappings for the tree buffer
-    nnoremap <buffer> <CR> :call <SID>show_file_diff()<CR>
-    nnoremap <buffer> <Esc> :bdelete! <bar> :bdelete! <bar> :bdelete!<CR>
+    nnoremap <buffer><nowait> <CR> :call <SID>show_file_diff()<CR>
+    nnoremap <buffer><nowait> q :bdelete<CR>
 endfunction
 
 " Function to show diff between proposed file and current file

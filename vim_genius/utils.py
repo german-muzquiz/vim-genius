@@ -22,8 +22,8 @@ def read_prompt_file() -> str:
     if os.path.exists(prompt_file):
         with open(prompt_file, "r", encoding="utf-8") as f:
             contents = f.read()
-            # Remove header (first 12 lines)
-            contents = "\n".join(contents.split("\n")[12:])
+            # Remove header (first 13 lines)
+            contents = "\n".join(contents.split("\n")[13:])
             return contents
     return ""
 

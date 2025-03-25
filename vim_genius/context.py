@@ -4,9 +4,11 @@ Context injection functionality for vim-genius.
 
 import os
 import re
-from typing import Dict
+from typing import Dict, Union
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig
+from pydantic_ai import BinaryContent
+from pydantic_ai.messages import UserContent
 
 
 async def load_url_content(url: str) -> str:
@@ -26,7 +28,7 @@ async def load_url_content(url: str) -> str:
         return result.markdown
 
 
-def load_file_content(file: str) -> str:
+def load_file_content(file: str) -> Union[str, BinaryContent]:
     """
     Load content from a file.
 
@@ -37,14 +39,19 @@ def load_file_content(file: str) -> str:
         The content of the file
     """
     file_path = file.strip()
+    content: Union[str, BinaryContent]
 
     if not os.path.isabs(file_path):
         file_path = os.path.join("/context", file_path)
 
     if os.path.exists(file_path):
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
+            if file_path.endswith((".jpg", ".jpeg", ".png", ".gif")):
+                with open(file_path, "rb") as f:
+                    content = BinaryContent(data=f.read(), media_type=f"image/{file_path.split('.')[-1]}")
+            else:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
         except Exception as e:
             content = f"Error reading file {file_path}: {str(e)}"
     else:
@@ -53,7 +60,7 @@ def load_file_content(file: str) -> str:
     return content
 
 
-async def inject_entry(entry: str) -> Dict[str, str]:
+async def inject_entry(entry: str) -> Dict[str, Union[str, BinaryContent]]:
     """
     Inject content from a file, folder, or URL.
 
@@ -63,8 +70,9 @@ async def inject_entry(entry: str) -> Dict[str, str]:
     Returns:
         A dictionary mapping file paths to content
     """
-    result: Dict[str, str] = {}
+    result: Dict[str, Union[str, BinaryContent]] = {}
     entry = entry.strip()
+    content: Union[str, BinaryContent]
 
     # Url loading
     if entry.startswith("http"):
@@ -87,7 +95,7 @@ async def inject_entry(entry: str) -> Dict[str, str]:
     return result
 
 
-async def inject_context(user_input: str) -> str:
+async def inject_context(user_input: str) -> list[UserContent]:
     """
     Inject context into the user input.
 
@@ -101,6 +109,7 @@ async def inject_context(user_input: str) -> str:
     tokens = re.findall(r"@(\S+)", user_input)
     file_injection_chunks: list[str] = []
     url_injection_chunks: list[str] = []
+    binary_files: list[BinaryContent] = []
     for token in tokens:
         context = await inject_entry(token)
         for file_path, content in context.items():
@@ -109,10 +118,13 @@ async def inject_context(user_input: str) -> str:
             else:
                 if file_path.startswith("/workspace/"):
                     file_path = file_path[len("/workspace/") :]  # noqa: PLW2901
-                file_injection_chunks.append(f"  <project_file filename={file_path}>\n{content}\n  </project_file>")
+                if isinstance(content, str):
+                    file_injection_chunks.append(f"  <project_file filename={file_path}>\n{content}\n  </project_file>")
+                else:
+                    binary_files.append(content)
 
     # Remove all @tokens from the original user prompt.
-    adjusted_prompt = re.sub(r"@\S+", "", user_input)
+    adjusted_prompt: str = re.sub(r"@\S+", "", user_input)
 
     if file_injection_chunks:
         adjusted_prompt += "<project_files>"
@@ -123,4 +135,8 @@ async def inject_context(user_input: str) -> str:
         adjusted_prompt += "\n" + "\n".join(url_injection_chunks)
         adjusted_prompt += "\n</web_resources>"
 
-    return adjusted_prompt
+    result: list[UserContent] = []
+    result.append(adjusted_prompt)
+    if binary_files:
+        result.extend(binary_files)
+    return result
