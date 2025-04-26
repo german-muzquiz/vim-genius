@@ -10,6 +10,8 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig
 from pydantic_ai import BinaryContent
 from pydantic_ai.messages import UserContent
 
+from .tools.scan_workspace import get_workspace_files
+
 
 async def load_url_content(url: str) -> str:
     """
@@ -60,7 +62,7 @@ def load_file_content(file: str) -> Union[str, BinaryContent]:
     return content
 
 
-async def inject_entry(entry: str) -> Dict[str, Union[str, BinaryContent]]:
+async def inject_entry(entry: str, workspace_home: str) -> Dict[str, Union[str, BinaryContent]]:
     """
     Inject content from a file, folder, or URL.
 
@@ -75,18 +77,18 @@ async def inject_entry(entry: str) -> Dict[str, Union[str, BinaryContent]]:
     content: Union[str, BinaryContent]
 
     # Url loading
-    if entry.startswith("http"):
+    if entry.startswith("http:"):
         content = await load_url_content(entry)
         result[entry] = content
         return result
 
     # File loading
     if not os.path.isabs(entry):
-        entry = os.path.join("/workspace", entry)
+        entry = os.path.join(workspace_home, entry)
     if os.path.isdir(entry):
         # For reproducible order, sort the file list.
         for dir_entry in sorted(os.listdir(entry)):
-            result.update(await inject_entry(os.path.join(entry, dir_entry)))
+            result.update(await inject_entry(os.path.join(entry, dir_entry), workspace_home))
     elif os.path.isfile(entry):
         content = load_file_content(entry)
         result[entry] = content
@@ -95,12 +97,13 @@ async def inject_entry(entry: str) -> Dict[str, Union[str, BinaryContent]]:
     return result
 
 
-async def inject_context(user_input: str) -> list[UserContent]:
+async def inject_context(user_input: str, workspace_home: str) -> list[UserContent]:
     """
     Inject context into the user input.
 
     Args:
         user_input: The user input to inject context into
+        workspace_home: The workspace home directory
 
     Returns:
         The user input with context injected
@@ -111,7 +114,7 @@ async def inject_context(user_input: str) -> list[UserContent]:
     url_injection_chunks: list[str] = []
     binary_files: list[BinaryContent] = []
     for token in tokens:
-        context = await inject_entry(token)
+        context = await inject_entry(token, workspace_home)
         for file_path, content in context.items():
             if file_path.startswith("http"):
                 url_injection_chunks.append(f"  <web_resource url={file_path}>\n{content}\n  </web_resource>")
@@ -130,6 +133,10 @@ async def inject_context(user_input: str) -> list[UserContent]:
         adjusted_prompt += "<project_files>"
         adjusted_prompt += "\n" + "\n".join(file_injection_chunks)
         adjusted_prompt += "\n</project_files>"
+    else:
+        # If no files were given in the context, list files in workspace.
+        workspace_files = get_workspace_files(workspace_home)
+        adjusted_prompt += "\nWorkspace files:\n" + "\n".join(workspace_files) + "\n"
     if url_injection_chunks:
         adjusted_prompt += "<web_resources>"
         adjusted_prompt += "\n" + "\n".join(url_injection_chunks)

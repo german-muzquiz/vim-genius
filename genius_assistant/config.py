@@ -7,8 +7,9 @@ import os
 from dotenv import load_dotenv
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai_bedrock.bedrock import BedrockModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 
 def load_config() -> None:
@@ -16,7 +17,8 @@ def load_config() -> None:
     Load configuration from ~/.genius/config.env file into environment variables.
     """
     # Config file is in user home directory
-    config_file = os.path.expanduser("~/.genius/config.env")
+    home = os.environ.get("HOME")
+    config_file = f"{home}/.genius/config.env"
     if not os.path.exists(config_file):
         raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
@@ -58,12 +60,14 @@ def create_model(api_family: str, model_name: str, api_key: str) -> Model:
         case "anthropic":
             return AnthropicModel(model_name, api_key=api_key)
         case "bedrock":
-            return BedrockModel(model_name)
+            return BedrockConverseModel(model_name)
         case "openrouter":
             return OpenAIModel(
                 model_name,
-                api_key=api_key,
-                base_url="https://openrouter.ai/api/v1",
+                provider=OpenAIProvider(
+                    api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                ),
             )
         case _:
             raise ValueError(f"Unknown model api family: {api_family}")

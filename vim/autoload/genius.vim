@@ -10,6 +10,7 @@ let s:genius_history_folder = s:genius_home . '/history'
 let s:genius_bufname = 'Genius'
 let s:genius_tree_bufname = 'Genius: Diff'
 let s:genius_history_bufname = 'Genius: History'
+let s:modified_files = {'added': [], 'updated': [], 'deleted': []}
 let s:max_history_files = 20
 let s:is_processing = 0
 let s:animation_frames = ['-', '\', '|', '/']
@@ -36,8 +37,7 @@ let s:prompt_header = [
     \ '<leader>c - Opens the configuration file',
     \ '',
     \ 'Add context:',
-    \ '@folder/ - Injects the contents of the folder into the prompt',
-    \ '@file - Injects the contents of the file into the prompt',
+    \ '@file - Injects the contents of the file or folder into the prompt',
     \ '@https://abc.com - Injects the contents of the URL into the prompt',
     \ '',
     \ 'Type @ and press Tab to autocomplete file paths',
@@ -203,11 +203,8 @@ function! s:execute_buffer() abort
     call delete(s:genius_staging_folder, 'rf')
     call mkdir(s:genius_staging_folder, "p", 0700)
 
-    let l:volumes = s:get_volumes_to_mount()
-    let l:env = s:get_env_vars_to_mount()
-    let l:cmd = "/bin/sh -c \"docker run --rm " . l:env . " " . l:volumes . " ghcr.io/german-muzquiz/vim-genius:" . s:default_tag . " python -m vim_genius.main\""
-    "echom l:cmd
-
+    let l:cmd = '/bin/sh -c "cd ~/.genius && uv run python -m genius_assistant.main ''' . getcwd() . '''"'
+    
     " Create or get output buffer
     let l:output_buf = bufadd(s:genius_bufname)
 
@@ -236,7 +233,7 @@ function! s:execute_buffer() abort
     let l:job = job_start(l:cmd, {
             \ 'out_cb': { id, data -> s:on_job_output(id, data, l:output_buf) },
             \ 'err_cb': { id, data -> s:on_job_output(id, data, l:output_buf) },
-            \ 'exit_cb': { id, status -> s:on_job_exit(id, status, l:output_buf) },
+            \ 'exit_cb': { id, status -> s:on_job_exit(id, status, l:output_buf, 1) },
             \ })
 
     if job_status(l:job) !=# 'run'
@@ -387,10 +384,9 @@ endfunction
 
 
 " This callback is called when the job finishes.
-function! s:on_job_exit(job_id, exit_status, output_buf) abort
+function! s:on_job_exit(job_id, exit_status, output_buf, track_changes) abort
     let s:is_processing = 0
     echom "Genius finished with status " . a:exit_status
-    call s:generate_summary(a:output_buf)
 endfunction
 
 
@@ -471,7 +467,7 @@ function! s:generate_summary(output_buf)
     let l:total_lines = len(l:lines)
     let l:line_idx = 0
     
-    " Iterate through all lines in the buffer
+    " Reset modified files tracking
     while l:line_idx < l:total_lines
         let l:line = l:lines[l:line_idx]
         
@@ -483,11 +479,11 @@ function! s:generate_summary(output_buf)
             
             " Add to appropriate list based on operation
             if l:operation == 'add'
-                call add(l:added, l:filename)
+                call add(s:modified_files.added, l:filename)
             elseif l:operation == 'update'
-                call add(l:updated, l:filename)
+                call add(s:modified_files.updated, l:filename)
             elseif l:operation == 'delete'
-                call add(l:deleted, l:filename)
+                call add(s:modified_files.deleted, l:filename)
             endif
             
             " Skip to after the end of this code block
@@ -500,15 +496,15 @@ function! s:generate_summary(output_buf)
     endwhile
 
     " Create summary text
-    let l:summary = ["---------------------------------------------------------------------------------"]
+    let l:summary = ["", "---------------------------------------------------------------------------------"]
     call add(l:summary, "File Changes Summary:")
-    for l:file in uniq(l:added)
+    for l:file in uniq(s:modified_files.added)
         call add(l:summary, "  " . l:file . " (to add)")
     endfor
-    for l:file in uniq(l:updated)
+    for l:file in uniq(s:modified_files.updated)
         call add(l:summary, "  " . l:file . " (to update)")
     endfor
-    for l:file in uniq(l:deleted)
+    for l:file in uniq(s:modified_files.deleted)
         call add(l:summary, "  " . l:file . " (to delete)")
     endfor
     call add(l:summary, "---------------------------------------------------------------------------------")
@@ -567,6 +563,9 @@ function! s:show_staging_tree() abort
     " Clear and set tree buffer content
     silent %delete _
     
+    " Ensure modified files lists are unique
+    call s:ensure_unique_modified_files()
+    
     " Add header
     call setline(1, ['File Changes:'])
     
@@ -576,11 +575,37 @@ function! s:show_staging_tree() abort
         return
     endif
     
+    " If we don't have any tracked modified files, scan the staging folder
+    if empty(s:modified_files.added) && empty(s:modified_files.updated) && empty(s:modified_files.deleted)
+        call s:scan_staging_folder()
+    endif
+    
+    " Display modified files list
+    call append(line('$'), ['']
+                \ + map(copy(s:modified_files.added),   '+ '. v:val)
+                \ + map(copy(s:modified_files.updated), '~ '. v:val)
+                \ + map(copy(s:modified_files.deleted), '- '. v:val)
+                \ )
+    
+    " Set up mappings for the tree buffer
+    nnoremap <buffer><nowait> <CR> :call <SID>show_file_diff()<CR>
+    nnoremap <buffer><nowait> q :bdelete<CR>
+endfunction
+
+" Ensure modified files lists contain unique entries
+function! s:ensure_unique_modified_files() abort
+    let s:modified_files.added = uniq(sort(copy(s:modified_files.added)))
+    let s:modified_files.updated = uniq(sort(copy(s:modified_files.updated)))
+    let s:modified_files.deleted = uniq(sort(copy(s:modified_files.deleted)))
+endfunction
+
+" Scan the staging folder to find modified files
+function! s:scan_staging_folder() abort
     " Get list of files in staging folder
     let l:files = glob(s:genius_staging_folder . '/**/*', 0, 1)
-    let l:added_files = []
-    let l:updated_files = []
-    let l:deleted_files = []
+    
+    " Reset modified files tracking
+    let s:modified_files = {'added': [], 'updated': [], 'deleted': []}
     
     for l:file in l:files
         if l:file =~ '\.patch$'
@@ -588,24 +613,20 @@ function! s:show_staging_tree() abort
         elseif l:file =~ '\.delete$'
             let l:file = substitute(l:file, s:genius_staging_folder . '/', '', '')
             let l:file = substitute(l:file, '\.delete$', '', '')
-            call add(l:deleted_files, l:file)
+            call add(s:modified_files.deleted, l:file)
         elseif filereadable(l:file)
             " Check if this is a new or updated file
             let l:rel_path = substitute(l:file, s:genius_staging_folder . '/', '', '')
             if filereadable(getcwd() . '/' . l:rel_path)
-                call add(l:updated_files, l:rel_path)
+                call add(s:modified_files.updated, l:rel_path)
             else
-                call add(l:added_files, l:rel_path)
+                call add(s:modified_files.added, l:rel_path)
             endif
         endif
     endfor
     
-    " Add files to the buffer with appropriate prefixes
-    call append(line('$'), [''] + map(l:added_files, '"+ " . v:val') + map(l:updated_files, '"~ " . v:val') + map(l:deleted_files, '"- " . v:val'))
-    
-    " Set up mappings for the tree buffer
-    nnoremap <buffer><nowait> <CR> :call <SID>show_file_diff()<CR>
-    nnoremap <buffer><nowait> q :bdelete<CR>
+    " Ensure lists contain unique entries
+    call s:ensure_unique_modified_files()
 endfunction
 
 " Function to show diff between proposed file and current file

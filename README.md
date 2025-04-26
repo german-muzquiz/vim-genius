@@ -1,17 +1,89 @@
 # vim-genius
 
-AI code assistant for Vim.
+An AI-powered code assistant for Vim.
 
 ## Overview
 
-vim-genius is a vim plugin that executes a companion docker container to generate code suggestions from the given prompt and context files.
-The docker container is a python CLI tool that uses pydanticai packed wit different tools.
+vim-genius is a Vim plugin that provides an AI-powered code assistant directly within your Vim environment. It allows you to interact with large language models (LLMs) to get code suggestions, refactoring help, and more, all without leaving your editor.
 
-### Interface between the vim plugin and docker
+The plugin consists of two main components:
+1. A Vim interface for interacting with the AI assistant
+2. A Python-based backend that handles communication with LLM APIs and processes code suggestions
 
-The vim plugin executes a command similar to this:
-```sh
-docker run --rm -v ${PWD}:/repo -it vim-genius:latest python -m vim_genius "$@"
+## Features
+
+- Interactive chat interface within Vim
+- Support for multiple LLM providers (OpenAI, Anthropic, AWS Bedrock, OpenRouter)
+- File context injection (include file contents in your prompts)
+- Web content injection (include web page contents in your prompts)
+- Diff view for proposed code changes
+- Chat history management
+- Easy configuration through a dedicated config file
+
+## Installation
+
+1. Install the Vim plugin using your preferred plugin manager
+
+   For example, with vim-plug:
+   ```vim
+   Plug 'path/to/vim-genius'
+   ```
+
+2. Install the Python dependencies:
+   ```bash
+   pip install pydantic-ai
+   ```
+
+3. Configure the plugin by running `:GeniusConfig` and setting your API credentials
+
+## Usage
+
+### Commands
+
+- `:Genius` - Open the genius chat interface
+- `:GeniusNew` - Start a new chat session
+- `:GeniusConfig` - Open the configuration file
+- `:GeniusHistory` - Show chat history
+
+### Keybindings (within Genius buffer)
+
+- `<leader>r` - Send the current chat to the LLM
+- `<leader>d` - Open diff view with proposed changes
+- `<leader>h` - Show chat history
+- `<leader>c` - Open the configuration file
+
+### Adding Context
+
+You can add context to your prompts using special syntax:
+
+- `@file/path` - Injects the contents of the file into the prompt
+- `@folder/path` - Injects information about the folder structure
+- `@https://example.com` - Injects the contents of the URL into the prompt
+
+Type `@` and press Tab to autocomplete file paths.
+
+## Configuration
+
+The configuration file is located at `~/.genius/config.env` and contains the following settings:
+
+- `API_FAMILY` - The LLM provider to use (openai, anthropic, bedrock, or openrouter)
+- `MODEL_NAME` - The name of the model to use
+- `MODEL_API_KEY` - Your API key (not required for AWS Bedrock, which uses AWS credentials)
+- `BRAVE_API_KEY` - (Optional) API key for Brave Search to enable web search functionality
+
+## Development
+
+### Linting with Ruff
+
+This project uses [Ruff](https://github.com/astral-sh/ruff) for linting and formatting Python code. Ruff is configured in the `pyproject.toml` file.
+
+To run Ruff for linting:
+
+```bash
+# Install development dependencies (includes ruff)
+pip install -e ".[dev]"
+# Run linting
+ruff check .
 ```
 
 

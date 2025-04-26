@@ -2,6 +2,7 @@
 Utility functions for vim-genius.
 """
 
+import configparser
 import os
 
 
@@ -18,7 +19,8 @@ def read_prompt_file() -> str:
     Returns:
         Prompt content or None if file doesn't exist
     """
-    prompt_file = "/root/.genius/current_chat.genius"
+    home = os.environ.get("HOME")
+    prompt_file = f"{home}/.genius/current_chat.genius"
     if os.path.exists(prompt_file):
         with open(prompt_file, "r", encoding="utf-8") as f:
             contents = f.read()
@@ -45,3 +47,28 @@ def print_usage_summary(usage) -> None:
     if usage.total_tokens is not None:
         print(f"  Total tokens: {usage.total_tokens}")
     print("-" * 80)
+
+
+def load_tasks_config(path: str) -> dict[str, dict[str, str]]:
+    """
+    Load a .tasks configuration file and return its sections and key-value pairs.
+
+    Args:
+        path: Path to the .tasks file.
+
+    Returns:
+        A dict mapping each section name to a dict of its string key-value pairs.
+    """
+    config = configparser.RawConfigParser()
+    config.read(path)
+
+    tasks: dict[str, dict[str, str]] = {}
+    for section in config.sections():
+        values: dict[str, str] = {}
+        for key, raw_val in config.items(section):
+            # Expand environment variables in the value
+            val = os.path.expandvars(raw_val)
+            values[key] = val
+        tasks[section] = values
+
+    return tasks

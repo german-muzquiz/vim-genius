@@ -1,0 +1,10 @@
+# see: https://github.com/skywind3000/asynctasks.vim/wiki/Task-Config
+[check-project]
+command=uv run ruff check --fix . && uv run mypy genius_assistant
+cwd=$(VIM_ROOT)
+output=terminal
+save=0
+focus=0
+pos=bottom
+close=0
+

@@ -104,7 +104,7 @@ def apply_hunk(content: str, hunk_lines: list[str]) -> str:
     return content.replace("\n".join(original_block), "\n".join(new_block))
 
 
-def process_code_blocks(code_blocks: list[dict]) -> None:
+def process_code_blocks(code_blocks: list[dict], workspace_home: str) -> None:
     """
     Process extracted code blocks and write them to files.
 
@@ -117,8 +117,8 @@ def process_code_blocks(code_blocks: list[dict]) -> None:
         content = block["content"]
 
         # Create full paths
-        temp_file_path = f"/root/.genius/staging/{filename}"
-        repo_file_path = f"/workspace/{filename}"
+        temp_file_path = os.path.join(os.path.expanduser("~"), ".genius", "staging", filename)
+        repo_file_path = os.path.join(workspace_home, filename)
 
         # Create parent directories if they don't exist
         os.makedirs(os.path.dirname(temp_file_path), exist_ok=True)
