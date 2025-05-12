@@ -1,0 +1,5 @@
+pydantic-ai>=0.0.24
+pydantic>=2.6.1
+python-dotenv~=1.0
+httpx>=0.24.1
+crawl4ai>=0.4.248

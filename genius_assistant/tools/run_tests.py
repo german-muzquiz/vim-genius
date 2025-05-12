@@ -1,5 +1,5 @@
 """
-Tool that lints a file to scan for errors.
+Tool that runs automated tests for the current project.
 """
 
 import os
@@ -13,12 +13,12 @@ from genius_assistant.schemas import Deps
 from genius_assistant.utils import load_tasks_config
 
 
-async def prepare_check_project(ctx: RunContext[Deps], tool_def: ToolDefinition) -> Union[ToolDefinition | None]:
+async def prepare_run_tests(ctx: RunContext[Deps], tool_def: ToolDefinition) -> Union[ToolDefinition | None]:
     if not os.path.exists(os.path.join(ctx.deps.workspace_home, ".tasks")):
         return None
     tasks_path = os.path.join(ctx.deps.workspace_home, ".tasks")
     configs = load_tasks_config(tasks_path)
-    section = "check-project"
+    section = "run-tests"
     if section not in configs:
         return None
 
@@ -29,18 +29,18 @@ async def prepare_check_project(ctx: RunContext[Deps], tool_def: ToolDefinition)
     return tool_def
 
 
-def check_project(ctx: RunContext[Deps]) -> str:
+def run_tests(ctx: RunContext[Deps]) -> str:
     """
-    Verifies the current project by running linters, formatters and compilers.
+    Runs automated tests for the current project.
     This tool is recommended to be run after any modifications to the source code.
 
     Args:
         ctx: The context object containing the dependencies.
 
     Returns:
-        A string indicating the result of the check.
+        A string indicating the result of the tests.
     """
-    print("=> Checking project ", end="")
+    print("=> Running tests ", end="")
 
     if not os.path.exists(os.path.join(ctx.deps.workspace_home, ".tasks")):
         raise ModelRetry(f"File .tasks does not exist in {ctx.deps.workspace_home}")
@@ -49,7 +49,7 @@ def check_project(ctx: RunContext[Deps]) -> str:
         # Load tasks configuration and extract the check-project settings
         tasks_path = os.path.join(ctx.deps.workspace_home, ".tasks")
         configs = load_tasks_config(tasks_path)
-        section = "check-project"
+        section = "run-tests"
         if section not in configs:
             return f"Section '{section}' not found in {tasks_path}"
 
@@ -74,18 +74,18 @@ def check_project(ctx: RunContext[Deps]) -> str:
 
         if result.returncode != 0:
             msg = (
-                "\nError linting project.\n return code: "
+                "\nError running tests.\n return code: "
                 f"{result.returncode}\nstdout:\n{result.stdout},\nstderr:\n{result.stderr}"
             )
             print(msg)
             return msg
 
-        print("ok")
-        return result.stdout or ""
+        print("tests ran successfully")
+        return "tests ran successfully"
     except subprocess.CalledProcessError as e:
-        msg = f"Error checking project.\nStdout:\n{e.stdout}\nStderr:\n{e.stderr}"
+        msg = f"\nError running tests.\n\nstdout:\n{e.stdout},\nstderr:\n{e.stderr}"
         print(msg)
         return msg
     except Exception as e:
-        print(f"Exception checking project: {e}")
-        raise ModelRetry(f"Error executing .tasks command: {e}")
+        print(f"Exception running tests: {e}")
+        raise ModelRetry(f"Error running tests: {e}")

@@ -8,12 +8,12 @@ import subprocess
 
 from pydantic_ai import ModelRetry, RunContext
 
-from ..schemas import Deps
+from genius_assistant.schemas import Deps
 
 
 def edit_file(ctx: RunContext[Deps], filename: str, patch: str) -> bool:
     """
-    Edits the contents of a file, making a backup with ".orig" extension if successful.
+    Edits the contents of a file.
 
     Args:
         ctx: The context object containing the dependencies.
@@ -64,8 +64,8 @@ def edit_file(ctx: RunContext[Deps], filename: str, patch: str) -> bool:
     """
     print(f"=> Editing file: {filename}")
 
-    if os.path.isabs(filename):
-        raise ModelRetry(f"File {filename} is not relative to the workspace root")
+    if os.path.isabs(filename) and not filename.startswith(ctx.deps.workspace_home):
+        raise ModelRetry(f"File {filename} is not in the workspace")
     if not os.path.exists(os.path.join(ctx.deps.workspace_home, filename)) or not os.path.isfile(
         os.path.join(ctx.deps.workspace_home, filename)
     ):
@@ -73,8 +73,15 @@ def edit_file(ctx: RunContext[Deps], filename: str, patch: str) -> bool:
 
     filename = os.path.join(ctx.deps.workspace_home, filename)
 
-    # Make a backup of the file
-    shutil.copy2(filename, f"{filename}.orig")
+    # Backup original file to ~/.genius/backup preserving structure, skip if already backed up
+    backup_root = os.path.expanduser("~/.genius/backup")
+    abs_file = filename
+    # Compute relative path to workspace
+    rel_path = os.path.relpath(abs_file, ctx.deps.workspace_home)
+    backup_path = os.path.join(backup_root, rel_path)
+    if not os.path.exists(backup_path):
+        os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+        shutil.copy2(abs_file, backup_path)
 
     # Write the patch to a file with .patch extension
     patch_file = f"{filename}.patch"
@@ -101,10 +108,11 @@ def edit_file(ctx: RunContext[Deps], filename: str, patch: str) -> bool:
         except FileNotFoundError:
             pass
 
-    # Compare new and original files
-    with open(filename, "r", encoding="utf-8") as f:
+    # Compare new content with backup
+    with open(abs_file, "r", encoding="utf-8") as f:
         new_content = f.read()
-    with open(f"{filename}.orig", "r", encoding="utf-8") as f:
+    # Load original content from backup
+    with open(backup_path, "r", encoding="utf-8") as f:
         original_content = f.read()
 
     if new_content == original_content:

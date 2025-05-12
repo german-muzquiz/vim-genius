@@ -2126,7 +2126,7 @@ wheels = [
 [[package]]
 name = "vim-genius"
 version = "0.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "crawl4ai" },
     { name = "httpx" },

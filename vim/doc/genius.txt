@@ -10,6 +10,7 @@ CONTENTS                                                      *genius-contents*
     5. Commands ............................... |genius-commands|
     6. Mappings ............................... |genius-mappings|
     7. Tips and Tricks ........................ |genius-tips|
+    8. Project Validation ..................... |genius-validation|
 
 ==============================================================================
 1. Introduction                                           *genius-introduction*
@@ -97,5 +98,29 @@ In the output buffer:
 - In the output buffer, use <leader>y to copy code blocks
 - Use <leader>a in the output buffer to automatically apply diffs
 
- vim:tw=78:ts=8:ft=help:norl:
+8. Project Validation                                   *genius-validation*
+
+The Project Validation tool (`check-project`) allows you to lint and compile
+your project using a custom command defined in a `.tasks` file at the root of
+your workspace. When the `.tasks` file contains a `[check-project]` section
+with a `command` entry, the tool will execute that command and return its
+output.
+
+Requirements:
+  - File name: `.tasks` in your project root
+  - Format: INI-style
+  - Section: `[check-project]`
+  - Option: `command = <shell command>`
+
+Example `.tasks` file:
+```ini
+[check-project]
+command = ruff check . --select E,F
+```
+
+With this in place, the `check-project` tool will run `ruff` (or your chosen
+tool) to verify code quality and report any errors directly from the Genius
+interface.
+
+vim:tw=78:ts=8:ft=help:norl:
 

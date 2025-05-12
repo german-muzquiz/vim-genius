@@ -5,7 +5,7 @@ let s:genius_home = expand('~/.genius')
 let s:genius_config_file = s:genius_home . '/config.env'
 let s:genius_prompt_file = s:genius_home . '/current_chat.genius'
 let s:genius_log_file = s:genius_home . '/genius.log'
-let s:genius_staging_folder = s:genius_home . '/staging'
+let s:genius_backup_folder = s:genius_home . '/backup'
 let s:genius_history_folder = s:genius_home . '/history'
 let s:genius_bufname = 'Genius'
 let s:genius_tree_bufname = 'Genius: Diff'
@@ -33,7 +33,7 @@ let s:prompt_header = [
     \ 'Help',
     \ '<leader>r - Sends the current chat file to the LLM',
     \ '<leader>d - Opens diff view with the proposed changes',
-    \ '<leader>h - Show chat history',
+    \ '<leader>p - Inject a preconfigured prompt',
     \ '<leader>c - Opens the configuration file',
     \ '',
     \ 'Add context:',
@@ -83,12 +83,6 @@ function! genius#open_genius_chat(new_chat=0) abort
     if a:new_chat || !filereadable(s:genius_prompt_file)
         " Create a new file for the prompt
         call writefile(s:prompt_header, s:genius_prompt_file)
-        
-        " Clean up the staging folder when creating a new chat
-        if isdirectory(s:genius_staging_folder)
-            call delete(s:genius_staging_folder, 'rf')
-        endif
-        call mkdir(s:genius_staging_folder, "p", 0700)
         let l:is_new_file = 1
     endif
 
@@ -121,9 +115,9 @@ function! genius#open_genius_chat(new_chat=0) abort
 
     " Set buffer-local keymap
     nnoremap <buffer> <leader>r :call <SID>execute_buffer()<CR>
-    nnoremap <buffer> <leader>h :call genius#show_history()<CR>
+    nnoremap <buffer> <leader>p :call genius#inject_prompt()<CR>
     nnoremap <buffer> <leader>c :call genius#open_config()<CR>
-    nnoremap <buffer> <leader>d :call <SID>show_staging_tree()<CR>
+    nnoremap <buffer> <leader>d :call <SID>show_backup_tree()<CR>
 
     " Save buffer contents when it is unloaded
     augroup GeniusLoaded
@@ -192,18 +186,18 @@ function! s:save_to_history() abort
 endfunction
 
 " Execute the buffer content using the LLM
-function! s:execute_buffer() abort
+function! s:execute_buffer(cmd) abort
     " Save buffer contents to chat prompt file
     call writefile(getline(1, '$'), s:genius_prompt_file)
 
     " Save chat to history
     call s:save_to_history()
 
-    " Empty the staging folder
-    call delete(s:genius_staging_folder, 'rf')
-    call mkdir(s:genius_staging_folder, "p", 0700)
-
-    let l:cmd = '/bin/sh -c "cd ~/.genius && uv run python -m genius_assistant.main ''' . getcwd() . '''"'
+    if a:cmd != ''
+        let l:cmd = a:cmd
+    else
+        let l:cmd = '/bin/sh -c "cd ~/.genius && uv run python -m genius_assistant.main ''' . getcwd() . '''"'
+    endif
     
     " Create or get output buffer
     let l:output_buf = bufadd(s:genius_bufname)
@@ -395,7 +389,6 @@ function! s:trigger_completion_after_dir() abort
     call feedkeys("\<C-x>\<C-u>", 'n')
 endfunction
 
-
 " File path completion function
 function! s:complete_filepath(findstart, base) abort
     if a:findstart
@@ -537,8 +530,8 @@ function! genius#extract_operation_from_tag(line) abort
 endfunction
 
 
-" Show the tree view of files in the staging folder
-function! s:show_staging_tree() abort
+" Show the tree view of files in the backup folder
+function! s:show_backup_tree() abort
     " Create or get tree buffer
     let l:tree_buf = bufadd(s:genius_tree_bufname)
     
@@ -558,38 +551,83 @@ function! s:show_staging_tree() abort
         execute l:tree_win . 'wincmd w'
     endif
 
-    execute 'wincmd o'
+    " Run only if there is more than one window
+    if winnr('$') > 1
+        execute 'wincmd o'
+    endif
     
     " Clear and set tree buffer content
     silent %delete _
     
-    " Ensure modified files lists are unique
-    call s:ensure_unique_modified_files()
-    
     " Add header
-    call setline(1, ['File Changes:'])
+    call setline(1, ['File Changes:', ''])
+    call s:scan_backup_folder()
     
-    " Check if staging folder exists
-    if !isdirectory(s:genius_staging_folder)
-        call append(line('$'), ['', 'No files in staging area.'])
-        return
-    endif
-    
-    " If we don't have any tracked modified files, scan the staging folder
-    if empty(s:modified_files.added) && empty(s:modified_files.updated) && empty(s:modified_files.deleted)
-        call s:scan_staging_folder()
-    endif
-    
-    " Display modified files list
-    call append(line('$'), ['']
-                \ + map(copy(s:modified_files.added),   '+ '. v:val)
-                \ + map(copy(s:modified_files.updated), '~ '. v:val)
-                \ + map(copy(s:modified_files.deleted), '- '. v:val)
-                \ )
-    
+    " Display file list
+    for l:file in s:modified_files.added
+        call append(line('$'), ['+ '. l:file])
+    endfor
+    for l:file in s:modified_files.updated
+        call append(line('$'), ['~ '. l:file])
+    endfor
+    for l:file in s:modified_files.deleted
+        call append(line('$'), ['- '. l:file])
+    endfor
+
     " Set up mappings for the tree buffer
     nnoremap <buffer><nowait> <CR> :call <SID>show_file_diff()<CR>
-    nnoremap <buffer><nowait> q :bdelete<CR>
+    " Press X to restore the selected file from backup
+    nnoremap <buffer><nowait> X :call <SID>restore_file()<CR>
+    nnoremap <buffer><nowait> q :call <SID>hide_backup_tree()<CR>
+
+    " Automatically open diff for the first file if any.
+    if len(s:modified_files.added) + len(s:modified_files.updated) + len(s:modified_files.deleted) > 0
+        " Move cursor to first file entry (after header lines at lines 1-2)
+        call cursor(3, 1)
+        call <SID>show_file_diff()
+    endif
+endfunction
+
+function! s:hide_backup_tree() abort
+    " Run only if there is more than one window
+    if winnr('$') > 1
+        execute 'wincmd o'
+    endif
+
+    " Close tree buffer
+    execute 'bdelete ' . s:genius_tree_bufname
+endfunction
+
+" Restore the selected file in the workspace from its backup copy
+function! s:restore_file() abort
+    " Get current line in tree buffer
+    let l:line = getline('.')
+    " Skip header or empty lines
+    if l:line =~ '^File Changes:' || l:line =~ '^\s*$'
+        return
+    endif
+    " Extract filename from line prefix (+, ~, or -)
+    let l:match = matchlist(l:line, '[+~-] \(.*\)')
+    if empty(l:match)
+        echo "Could not extract filename"
+        return
+    endif
+    let l:filename = l:match[1]
+    let l:backup = s:genius_backup_folder . '/' . l:filename
+    let l:target = getcwd() . '/' . l:filename
+    " Ensure backup exists
+    if !filereadable(l:backup)
+        echo "Backup not found for " . l:filename
+        return
+    endif
+    " Create target directory if needed
+    call mkdir(fnamemodify(l:target, ':h'), 'p')
+    " Overwrite target with backup
+    if filereadable(l:target)
+        call delete(l:target)
+    endif
+    call writefile(readfile(l:backup), l:target)
+    echo "Restored " . l:filename . " from backup"
 endfunction
 
 " Ensure modified files lists contain unique entries
@@ -599,30 +637,21 @@ function! s:ensure_unique_modified_files() abort
     let s:modified_files.deleted = uniq(sort(copy(s:modified_files.deleted)))
 endfunction
 
-" Scan the staging folder to find modified files
-function! s:scan_staging_folder() abort
-    " Get list of files in staging folder
-    let l:files = glob(s:genius_staging_folder . '/**/*', 0, 1)
+" Scan the backup folder to find modified files
+function! s:scan_backup_folder() abort
+    " Get list of files in backup folder
+    let l:files = glob(s:genius_backup_folder . '/**/*', 0, 1)
     
     " Reset modified files tracking
     let s:modified_files = {'added': [], 'updated': [], 'deleted': []}
     
     for l:file in l:files
-        if l:file =~ '\.patch$'
+        " Check if this is a directory
+        if isdirectory(l:file)
             continue
-        elseif l:file =~ '\.delete$'
-            let l:file = substitute(l:file, s:genius_staging_folder . '/', '', '')
-            let l:file = substitute(l:file, '\.delete$', '', '')
-            call add(s:modified_files.deleted, l:file)
-        elseif filereadable(l:file)
-            " Check if this is a new or updated file
-            let l:rel_path = substitute(l:file, s:genius_staging_folder . '/', '', '')
-            if filereadable(getcwd() . '/' . l:rel_path)
-                call add(s:modified_files.updated, l:rel_path)
-            else
-                call add(s:modified_files.added, l:rel_path)
-            endif
         endif
+        let l:rel_path = substitute(l:file, s:genius_backup_folder . '/', '', '')
+        call add(s:modified_files.updated, l:rel_path)
     endfor
     
     " Ensure lists contain unique entries
@@ -661,9 +690,9 @@ function! s:show_file_diff() abort
         return
     endif
 
-    " Original is relative to pwd
-    let l:original = getcwd() . '/' . l:filename
-    let l:new = s:genius_staging_folder . '/' . l:filename
+    " Original is in the backup folder
+    let l:new = getcwd() . '/' . l:filename
+    let l:original = s:genius_backup_folder . '/' . l:filename
 
     " Open the original and new files in a vertical split to the right of the file tree
     " with the original file on the left and the new file on the right, in diff mode
@@ -683,3 +712,51 @@ function! s:show_file_diff() abort
     
 endfunction
 
+function! genius#inject_prompt() abort
+    let l:prompts = ['Initialize project', 'Create tasks']
+
+    call fzf#run({
+        \ 'source':  l:prompts,
+        \ 'options': ['--nth', '1..2', '-m', '-d', '\t', '--tiebreak=begin', '--select-1'],
+        \ 'window': { 'width': 0.3, 'height': 0.3, 'border_color': '#ffff00', 'border_label': 'Select a prompt' },
+        \ 'sink':    function('s:on_prompt_selected')})
+endfunction
+
+function! s:on_prompt_selected(prompt_name) abort
+    " Load prompt from the prompt_name
+    let l:prompt = []
+    if a:prompt_name == 'Initialize project'
+        let l:prompt = s:get_prompt('INIT_PROJECT_PROMPT')
+    elseif a:prompt_name == 'Create tasks'
+        let l:prompt = s:get_prompt('CREATE_TASKS_PROMPT')
+    endif
+    call add(l:prompt, '')
+
+    " Delete all contents of the current buffer and inject the header and the
+    " prompt
+    silent %delete _
+    call append(0, s:prompt_header)
+    call append(line('$'), l:prompt)
+endfunction
+
+function! s:get_prompt(prompt_name) abort
+    let l:prompts_file = readfile(s:genius_home . '/genius_assistant/prompts.py')
+    let l:prompt = []
+    let l:capture = 0
+
+    " Read lines until line matches
+    for l:line in l:prompts_file
+        if l:line =~ '^"""' && l:capture == 1
+            let l:capture = 0
+            break
+        endif
+        if l:capture == 1
+            call add(l:prompt, l:line)
+        endif
+        if l:line =~ '^' . a:prompt_name
+            let l:capture = 1
+        endif
+    endfor
+
+    return l:prompt
+endfunction

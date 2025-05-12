@@ -4,19 +4,30 @@ Main entry point for the vim-genius CLI tool.
 
 import asyncio
 import os
+import shutil
 import sys
 import traceback
 
 from pydantic_ai import Agent, Tool
 from pydantic_ai.settings import ModelSettings
 
-from .code_blocks import extract_code_blocks, process_code_blocks
-from .config import create_model, load_config, validate_config
-from .context import inject_context
-from .prompts import SYSTEM_PROMPT
-from .schemas import Deps
-from .tools import check_project, edit_file, prepare_check_project, read_file, scan_workspace, web_search
-from .utils import read_prompt_file
+from genius_assistant.config import create_model, load_config, validate_config
+from genius_assistant.context import inject_context
+from genius_assistant.prompts import SYSTEM_PROMPT
+from genius_assistant.schemas import Deps
+from genius_assistant.tools import (
+    add_file,
+    check_project,
+    edit_file,
+    prepare_check_project,
+    prepare_run_tests,
+    prepare_web_search,
+    read_file,
+    run_tests,
+    scan_workspace,
+    web_search,
+)
+from genius_assistant.utils import read_prompt_file
 
 
 def print_usage_summary(usage):
@@ -39,6 +50,12 @@ async def main(workspace_home: str) -> None:
     if not os.path.isdir(workspace_home):
         raise FileNotFoundError(f"Workspace {workspace_home} not found or is not a directory")
 
+    # Reset backup folder before agent run
+    backup_root = os.path.expanduser("~/.genius/backup")
+    if os.path.exists(backup_root):
+        shutil.rmtree(backup_root)
+    os.makedirs(backup_root, exist_ok=True)
+
     prompt = read_prompt_file()
     load_config()
 
@@ -58,13 +75,13 @@ async def main(workspace_home: str) -> None:
     try:
         tools: list[Tool[Deps]] = [
             Tool(edit_file, takes_ctx=True),
+            Tool(add_file, takes_ctx=True),
             Tool(scan_workspace, takes_ctx=True),
             Tool(read_file, takes_ctx=True),
             Tool(check_project, prepare=prepare_check_project, takes_ctx=True),
+            Tool(run_tests, prepare=prepare_run_tests, takes_ctx=True),
+            Tool(web_search, prepare=prepare_web_search, takes_ctx=True),
         ]
-
-        if os.getenv("BRAVE_API_KEY"):
-            tools.append(Tool(web_search, takes_ctx=True))
 
         # Create the agent
         agent = Agent(
@@ -90,10 +107,10 @@ async def main(workspace_home: str) -> None:
         # Print the complete response
         print(result.output)
 
-        # Extract and process code blocks
-        code_blocks = extract_code_blocks(result.output)
-        if code_blocks:
-            process_code_blocks(code_blocks, workspace_home)
+        # # Extract and process code blocks
+        # code_blocks = extract_code_blocks(result.output)
+        # if code_blocks:
+        #     process_code_blocks(code_blocks, workspace_home)
         print_usage_summary(result.usage())
 
         print("")
@@ -108,5 +125,12 @@ async def main(workspace_home: str) -> None:
 
 
 if __name__ == "__main__":
-    workspace_home = sys.argv[1]
+    import argparse
+
+    parser = argparse.ArgumentParser(description="vim-genius CLI")
+    parser.add_argument("workspace", help="Path to workspace directory")
+    args = parser.parse_args()
+
+    workspace_home = args.workspace
+    # Run main with init flag if provided
     asyncio.run(main(workspace_home))

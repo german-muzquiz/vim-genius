@@ -2,10 +2,20 @@
 Tool that performs a web search using the Brave API.
 """
 
+import os
+from typing import Union
+
 import httpx
 from pydantic_ai import RunContext
+from pydantic_ai.tools import ToolDefinition
 
-from ..schemas import Deps, WebSearchResult
+from genius_assistant.schemas import Deps, WebSearchResult
+
+
+async def prepare_web_search(ctx: RunContext[Deps], tool_def: ToolDefinition) -> Union[ToolDefinition | None]:
+    if not os.getenv("BRAVE_API_KEY"):
+        return None
+    return tool_def
 
 
 def web_search(ctx: RunContext[Deps], query: str) -> list[WebSearchResult]:

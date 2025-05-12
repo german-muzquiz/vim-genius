@@ -10,7 +10,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig
 from pydantic_ai import BinaryContent
 from pydantic_ai.messages import UserContent
 
-from .tools.scan_workspace import get_workspace_files
+from genius_assistant.tools.scan_workspace import get_workspace_files
 
 
 async def load_url_content(url: str) -> str:
@@ -133,14 +133,16 @@ async def inject_context(user_input: str, workspace_home: str) -> list[UserConte
         adjusted_prompt += "<project_files>"
         adjusted_prompt += "\n" + "\n".join(file_injection_chunks)
         adjusted_prompt += "\n</project_files>"
-    else:
-        # If no files were given in the context, list files in workspace.
-        workspace_files = get_workspace_files(workspace_home)
-        adjusted_prompt += "\nWorkspace files:\n" + "\n".join(workspace_files) + "\n"
     if url_injection_chunks:
         adjusted_prompt += "<web_resources>"
         adjusted_prompt += "\n" + "\n".join(url_injection_chunks)
         adjusted_prompt += "\n</web_resources>"
+
+    # Include in the context the list of files in the workspace
+    workspace_files = get_workspace_files(workspace_home)
+    adjusted_prompt += "<workspace_file_listing>"
+    adjusted_prompt += "\n" + "\n".join(workspace_files)
+    adjusted_prompt += "\n</workspace_file_listing>"
 
     result: list[UserContent] = []
     result.append(adjusted_prompt)

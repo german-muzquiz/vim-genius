@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=63.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "vim-genius"
 version = "0.0.0"
@@ -31,6 +35,10 @@ dev = [
 [[tool.uv.index]]
 name = "pipi"
 url = "https://pypi.org/simple"
+
+[tool.setuptools.packages.find]
+include = ["genius_assistant*"]
+exclude = ["vim*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["app/src", "app/tests"]

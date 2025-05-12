@@ -6,7 +6,7 @@ import os
 
 from pydantic_ai import ModelRetry, RunContext
 
-from ..schemas import Deps
+from genius_assistant.schemas import Deps
 
 
 def read_file(ctx: RunContext[Deps], filename: str) -> str:
@@ -30,7 +30,9 @@ def read_file(ctx: RunContext[Deps], filename: str) -> str:
         file_path = os.path.join(ctx.deps.workspace_home, filename)
 
     if not os.path.exists(file_path):
-        raise ModelRetry(f"File {file_path} does not exist")
+        msg = f"File {file_path} does not exist"
+        print(msg)
+        raise ModelRetry(msg)
 
     with open(file_path, "r") as f:
         return f.read()
