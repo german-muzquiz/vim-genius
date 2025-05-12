@@ -186,18 +186,14 @@ function! s:save_to_history() abort
 endfunction
 
 " Execute the buffer content using the LLM
-function! s:execute_buffer(cmd) abort
+function! s:execute_buffer() abort
     " Save buffer contents to chat prompt file
     call writefile(getline(1, '$'), s:genius_prompt_file)
 
     " Save chat to history
     call s:save_to_history()
 
-    if a:cmd != ''
-        let l:cmd = a:cmd
-    else
-        let l:cmd = '/bin/sh -c "cd ~/.genius && uv run python -m genius_assistant.main ''' . getcwd() . '''"'
-    endif
+    let l:cmd = '/bin/sh -c "cd ~/.genius && uv run python -m genius_assistant.main ''' . getcwd() . '''"'
     
     " Create or get output buffer
     let l:output_buf = bufadd(s:genius_bufname)

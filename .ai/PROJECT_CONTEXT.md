@@ -82,3 +82,14 @@ vim-genius/
 - **Extensibility**: Plugin system loosely coupled but adding new filetype integrations may require additional Vimscript.
 - **Environment**: Python 3.9+ required
 
+## 5. Build, Lint, and Test
+
+**Install Dependencies**:
+```bash
+uv sync
+```
+
+**Lint & Type Checking**:
+```bash
+uv run check-project
+```

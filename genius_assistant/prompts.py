@@ -251,7 +251,7 @@ You are senior software developer acting as an assistat of another developer.
 """  # noqa: E501,W293
 
 INIT_PROJECT_PROMPT = """
-Create a `PROJECT_CONTEXT.md` file describing the current project and save it to the `.ai/` folder at the root of the project. It should include the following:
+Create or update the file `PROJECT_CONTEXT.md` in `.ai/` folder describing the current project. It should include the following:
 
 - High level vision of the project: What it does, what is its purpose, how it fits into a larger system.
 - Project architecture and how it is organized: Main components, file and directory structure, core data models and interfaces, etc.
@@ -264,6 +264,6 @@ Read any README.md or documentation files in the project that may be helpful for
 """  # noqa: E501
 
 CREATE_TASKS_PROMPT = """
-Write a `TASKS.md` file in the `.ai/` folder at the root of the project with a list of tasks for doing the following:
+Write a new `TASKS.md` file in the `.ai/` folder at the root of the project. Delete any current content. The file should include a list of tasks for doing the following:
 
-"""
+"""  # noqa: E501
