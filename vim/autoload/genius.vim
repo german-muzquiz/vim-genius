@@ -35,6 +35,7 @@ let s:prompt_header = [
     \ '<leader>d - Opens diff view with the proposed changes',
     \ '<leader>p - Inject a preconfigured prompt',
     \ '<leader>c - Opens the configuration file',
+    \ '<leader>x - Cancel the current execution',
     \ '',
     \ 'Add context:',
     \ '@file - Injects the contents of the file or folder into the prompt',
@@ -118,6 +119,7 @@ function! genius#open_genius_chat(new_chat=0) abort
     nnoremap <buffer> <leader>p :call genius#inject_prompt()<CR>
     nnoremap <buffer> <leader>c :call genius#open_config()<CR>
     nnoremap <buffer> <leader>d :call <SID>show_backup_tree()<CR>
+    nnoremap <buffer> <leader>x :call <SID>cancel_job()<CR>
 
     " Save buffer contents when it is unloaded
     augroup GeniusLoaded
@@ -220,13 +222,13 @@ function! s:execute_buffer() abort
     let s:animation_timer = timer_start(100, function('s:update_animation'), {'repeat': -1})
 
     " Start the asynchronous job
-    let l:job = job_start(l:cmd, {
+    let s:genius_job = job_start(l:cmd, {
             \ 'out_cb': { id, data -> s:on_job_output(id, data, l:output_buf) },
             \ 'err_cb': { id, data -> s:on_job_output(id, data, l:output_buf) },
             \ 'exit_cb': { id, status -> s:on_job_exit(id, status, l:output_buf, 1) },
             \ })
 
-    if job_status(l:job) !=# 'run'
+    if job_status(s:genius_job) !=# 'run'
         echom "Failed to start job"
     endif
 endfunction
@@ -557,7 +559,7 @@ function! s:show_backup_tree() abort
     
     " Add header
     call setline(1, ['File Changes:', ''])
-    call s:scan_backup_folder()
+    call genius#scan_backup_folder()
     
     " Display file list
     for l:file in s:modified_files.added
@@ -634,9 +636,12 @@ function! s:ensure_unique_modified_files() abort
 endfunction
 
 " Scan the backup folder to find modified files
-function! s:scan_backup_folder() abort
-    " Get list of files in backup folder
+function! genius#scan_backup_folder() abort
+    " Get list of files in backup folder, include hidden files
     let l:files = glob(s:genius_backup_folder . '/**/*', 0, 1)
+    let l:hidden_files = glob(s:genius_backup_folder . '/.[^.]**/*', 0, 1)
+    " Merge two lists
+    let l:files = extend(l:files, l:hidden_files)
     
     " Reset modified files tracking
     let s:modified_files = {'added': [], 'updated': [], 'deleted': []}
@@ -709,7 +714,7 @@ function! s:show_file_diff() abort
 endfunction
 
 function! genius#inject_prompt() abort
-    let l:prompts = ['Initialize project', 'Create tasks']
+    let l:prompts = ['Do change', 'Update project context', 'Create tasks']
 
     call fzf#run({
         \ 'source':  l:prompts,
@@ -721,10 +726,12 @@ endfunction
 function! s:on_prompt_selected(prompt_name) abort
     " Load prompt from the prompt_name
     let l:prompt = []
-    if a:prompt_name == 'Initialize project'
+    if a:prompt_name == 'Update project context'
         let l:prompt = s:get_prompt('INIT_PROJECT_PROMPT')
     elseif a:prompt_name == 'Create tasks'
         let l:prompt = s:get_prompt('CREATE_TASKS_PROMPT')
+    elseif a:prompt_name == 'Do change'
+        let l:prompt = s:get_prompt('DO_CHANGE_PROMPT')
     endif
     call add(l:prompt, '')
 
@@ -732,7 +739,10 @@ function! s:on_prompt_selected(prompt_name) abort
     " prompt
     silent %delete _
     call append(0, s:prompt_header)
-    call append(line('$'), l:prompt)
+    call append(line('$') - 1, l:prompt)
+
+    " Move to the end of the prompt
+    normal G
 endfunction
 
 function! s:get_prompt(prompt_name) abort
@@ -755,4 +765,14 @@ function! s:get_prompt(prompt_name) abort
     endfor
 
     return l:prompt
+endfunction
+
+function! s:cancel_job() abort
+  if exists('s:genius_job')
+    call job_stop(s:genius_job, "kill")
+    echohl WarningMsg | echom "Genius: Job cancelled." | echohl None
+    unlet! s:genius_job
+  else
+    echom "Genius: No running job to cancel."
+  endif
 endfunction

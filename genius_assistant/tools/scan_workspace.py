@@ -11,7 +11,9 @@ from genius_assistant.schemas import Deps
 _EXCLUDE_DIRS = [
     ".git",
     ".venv",
+    ".env",
     ".pytest_cache",
+    ".idea",
     ".mypy_cache",
     ".vscode",
     "node_modules",

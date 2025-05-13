@@ -8,10 +8,15 @@ genius_assistant/main.py
 genius_assistant/prompts.py
 genius_assistant/schemas.py
 genius_assistant/utils.py
+genius_assistant/models/__init__.py
+genius_assistant/models/openai.py
 genius_assistant/tools/__init__.py
+genius_assistant/tools/add_file.py
+genius_assistant/tools/backup_file.py
 genius_assistant/tools/check_project.py
 genius_assistant/tools/edit_file.py
 genius_assistant/tools/read_file.py
+genius_assistant/tools/run_tests.py
 genius_assistant/tools/scan_workspace.py
 genius_assistant/tools/web_search.py
 vim_genius.egg-info/PKG-INFO

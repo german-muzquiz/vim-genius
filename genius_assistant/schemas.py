@@ -13,6 +13,7 @@ class Deps(BaseModel):
     brave_api_key: Optional[str] = None
     workspace_home: str
     modified_files: list[str] = Field(default=[], description="List of modified files during the agent run")
+    tool_invocations: int = 0
 
 
 class WebSearchResult(BaseModel):

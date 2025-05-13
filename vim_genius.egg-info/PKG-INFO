@@ -11,6 +11,7 @@ Requires-Dist: pydantic>=2.6.1
 Requires-Dist: python-dotenv~=1.0
 Requires-Dist: httpx>=0.24.1
 Requires-Dist: crawl4ai>=0.4.248
+Requires-Dist: jinja2>=3.1.6
 
 # vim-genius
 

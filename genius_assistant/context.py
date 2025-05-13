@@ -10,8 +10,6 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig
 from pydantic_ai import BinaryContent
 from pydantic_ai.messages import UserContent
 
-from genius_assistant.tools.scan_workspace import get_workspace_files
-
 
 async def load_url_content(url: str) -> str:
     """
@@ -110,6 +108,7 @@ async def inject_context(user_input: str, workspace_home: str) -> list[UserConte
     """
     # This regex finds tokens such as "@filename" or "@folder/"
     tokens = re.findall(r"@(\S+)", user_input)
+    tokens.append(".ai")
     file_injection_chunks: list[str] = []
     url_injection_chunks: list[str] = []
     binary_files: list[BinaryContent] = []
@@ -129,6 +128,8 @@ async def inject_context(user_input: str, workspace_home: str) -> list[UserConte
     # Remove all @tokens from the original user prompt.
     adjusted_prompt: str = re.sub(r"@\S+", "", user_input)
 
+    adjusted_prompt += f"\nWorkspace home: {workspace_home}\n"
+
     if file_injection_chunks:
         adjusted_prompt += "<project_files>"
         adjusted_prompt += "\n" + "\n".join(file_injection_chunks)
@@ -139,10 +140,10 @@ async def inject_context(user_input: str, workspace_home: str) -> list[UserConte
         adjusted_prompt += "\n</web_resources>"
 
     # Include in the context the list of files in the workspace
-    workspace_files = get_workspace_files(workspace_home)
-    adjusted_prompt += "<workspace_file_listing>"
-    adjusted_prompt += "\n" + "\n".join(workspace_files)
-    adjusted_prompt += "\n</workspace_file_listing>"
+    # workspace_files = get_workspace_files(workspace_home)
+    # adjusted_prompt += "<workspace_file_listing>"
+    # adjusted_prompt += "\n" + "\n".join(workspace_files)
+    # adjusted_prompt += "\n</workspace_file_listing>"
 
     result: list[UserContent] = []
     result.append(adjusted_prompt)

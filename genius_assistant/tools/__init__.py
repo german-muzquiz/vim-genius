@@ -1,4 +1,5 @@
 from genius_assistant.tools.add_file import add_file
+from genius_assistant.tools.backup_file import backup_file
 from genius_assistant.tools.check_project import check_project, prepare_check_project
 from genius_assistant.tools.edit_file import edit_file
 from genius_assistant.tools.read_file import read_file
@@ -17,4 +18,5 @@ __all__ = [
     "prepare_run_tests",
     "run_tests",
     "add_file",
+    "backup_file",
 ]

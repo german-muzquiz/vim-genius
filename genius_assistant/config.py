@@ -11,6 +11,8 @@ from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+from genius_assistant.models.openai import GeniusOpenAIModel
+
 
 def load_config() -> None:
     """
@@ -62,7 +64,7 @@ def create_model(api_family: str, model_name: str, api_key: str) -> Model:
         case "bedrock":
             return BedrockConverseModel(model_name)
         case "openrouter":
-            return OpenAIModel(
+            return GeniusOpenAIModel(
                 model_name,
                 provider=OpenAIProvider(
                     api_key=api_key,

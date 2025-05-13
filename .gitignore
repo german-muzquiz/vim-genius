@@ -6,3 +6,5 @@
 genius_assistant/__pycache__/
 __pycache__/
 build/
+*.pyc
+**/__pycache__/
