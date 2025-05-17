@@ -3,6 +3,7 @@ Main entry point for the vim-genius CLI tool.
 """
 
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -18,11 +19,13 @@ from pydantic_ai.messages import (
     FinalResultEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
+    ModelMessagesTypeAdapter,
     PartDeltaEvent,
     PartStartEvent,
     TextPartDelta,
 )
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.usage import UsageLimitExceeded, UsageLimits
 
 from genius_assistant.config import create_model, load_config, validate_config
 from genius_assistant.context import inject_context
@@ -30,15 +33,18 @@ from genius_assistant.mcp.filesystem import GeniusFilesystemMCP
 from genius_assistant.prompts import SYSTEM_PROMPT
 from genius_assistant.schemas import Deps
 from genius_assistant.tools import (
-    backup_file,
-    check_project,
-    prepare_check_project,
-    prepare_run_tests,
-    run_tests,
+    list_cli_commands,
+    register_cli_command,
+    run_cli_command,
 )
+from genius_assistant.tools.list_cli_commands import list_cli_commands_raw
 from genius_assistant.utils import read_prompt_file
 
-MAX_TOOL_CALLS = 20
+_USER_TUNR_HEADER = """
+---------------------------------------------------------------------------------
+User Turn
+---------------------------------------------------------------------------------
+"""
 
 
 def print_usage_summary(usage):
@@ -56,7 +62,7 @@ def print_usage_summary(usage):
     print("-" * 81)
 
 
-def _get_mcp_servers(workspace_home: str) -> list[MCPServerStdio]:
+def _get_mcp_servers(workspace_home: str, deps: Deps) -> list[MCPServerStdio]:
     servers = [
         GeniusFilesystemMCP(
             "npx",
@@ -65,8 +71,13 @@ def _get_mcp_servers(workspace_home: str) -> list[MCPServerStdio]:
                 "@modelcontextprotocol/server-filesystem",
                 workspace_home,
             ],
+            deps=deps,
         ),
         MCPServerStdio("uvx", args=["mcp-server-fetch"]),
+        MCPServerStdio(
+            "npx",
+            args=["-y", "@upstash/context7-mcp@latest"],
+        ),
     ]
     if os.getenv("BRAVE_API_KEY"):
         servers.append(
@@ -85,12 +96,15 @@ def _handle_event(
 ) -> Optional[str]:
     if isinstance(event, FunctionToolCallEvent):
         deps.tool_invocations += 1
-        if deps.tool_invocations > MAX_TOOL_CALLS:
-            raise Exception("Too many tool invocations, aborting")
         args = event.part.args
-        if event.part.tool_name == "edit_file":
-            print(f"Type of args: {type(args)}")
-        print(f"==> Running {event.part.tool_name} ({args})")
+        if event.part.tool_name in ("edit_file", "write_file"):
+            if isinstance(args, str):
+                decoded = json.loads(args)
+                decoded.pop("content", None)
+                decoded.pop("edits", None)
+                decoded.pop("newText", None)
+                args = json.dumps(decoded)
+        print(f"==> Tool {event.part.tool_name} ({args})")
         return None
     if isinstance(event, FunctionToolResultEvent):
         return None
@@ -130,6 +144,11 @@ async def main(workspace_home: str) -> None:
 
     # Reset backup folder before agent run
     backup_root = os.path.expanduser("~/.genius/backup")
+    # Ensure history directory exists
+    history_root = os.path.expanduser("~/.genius/history")
+    history_file_path = os.path.join(history_root, "current_run.json")
+    os.makedirs(history_root, exist_ok=True)
+
     if os.path.exists(backup_root):
         shutil.rmtree(backup_root)
     os.makedirs(backup_root, exist_ok=True)
@@ -142,35 +161,50 @@ async def main(workspace_home: str) -> None:
         sys.exit(1)
 
     user_prompt = await inject_context(prompt, workspace_home)
+
+    # Check if the user turn header is present in the prompt
+    if _USER_TUNR_HEADER in prompt:
+        print("User Turn header found in prompt")
+        with open(history_file_path, "rb") as f:
+            history_contents = f.read()
+            history = ModelMessagesTypeAdapter.validate_json(history_contents)
+        user_prompt = [prompt.split(_USER_TUNR_HEADER)[-1]]
+    else:
+        history = None
+
     validate_config()
     model_api_family = os.getenv("API_FAMILY", "")
     model_name = os.getenv("MODEL_NAME", "")
     model_api_key = os.getenv("MODEL_API_KEY", "")
 
-    # print("User prompt:")
-    # print("\n".join(user_prompt))  # type: ignore
+    print("User prompt:")
+    print("\n".join(user_prompt))  # type: ignore
+    print(f"History: {history}")
 
     try:
         tools: list[Tool[Deps]] = [
-            # Tool(edit_file, takes_ctx=True),
-            # Tool(add_file, takes_ctx=True),
-            # Tool(scan_workspace, takes_ctx=True),
-            # Tool(read_file, takes_ctx=True),
-            Tool(check_project, prepare=prepare_check_project, takes_ctx=True),
-            Tool(run_tests, prepare=prepare_run_tests, takes_ctx=True),
-            # Tool(web_search, prepare=prepare_web_search, takes_ctx=True),
-            Tool(backup_file, takes_ctx=True),
+            Tool(run_cli_command, takes_ctx=True),
+            Tool(register_cli_command, takes_ctx=True),
+            Tool(list_cli_commands, takes_ctx=True),
         ]
+
+        deps = Deps(workspace_home=workspace_home)
+        commands = list_cli_commands_raw(deps)
+        commands_txt = ""
+        for name, cmd in commands.items():
+            commands_txt += f"- {name}: {cmd}\n"
 
         # Create the agent
         agent = Agent(
             create_model(model_api_family, model_name, model_api_key),
-            system_prompt=Template(SYSTEM_PROMPT).render(date=datetime.now().strftime("%Y-%m-%d")),
+            system_prompt=Template(SYSTEM_PROMPT).render(
+                date=datetime.now().strftime("%Y-%m-%d"), commands=commands_txt
+            ),
             deps_type=Deps,
             result_type=str,
             retries=2,
             tools=tools,
-            mcp_servers=_get_mcp_servers(workspace_home),
+            mcp_servers=_get_mcp_servers(workspace_home, deps),
         )
 
         print("")
@@ -178,24 +212,20 @@ async def main(workspace_home: str) -> None:
         print(f"Model: {model_name}")
         print("-" * 81)
 
-        deps = Deps(brave_api_key=os.getenv("BRAVE_API_KEY"), workspace_home=workspace_home)
-
         async with agent.run_mcp_servers():
             async with agent.iter(
                 user_prompt,
                 deps=deps,
                 model_settings=ModelSettings(max_tokens=8192, temperature=0.0),
+                usage_limits=UsageLimits(request_limit=30, request_tokens_limit=200000),
+                message_history=history,
             ) as run:
                 await _process_agent_run(run, deps)
-
-                # Print the complete response
-                # print(result.output)
-
-                # # Extract and process code blocks
-                # code_blocks = extract_code_blocks(result.output)
-                # if code_blocks:
-                #     process_code_blocks(code_blocks, workspace_home)
                 if run.result:
+                    # Save message history
+                    all_messages = run.result.all_messages_json()
+                    with open(history_file_path, "wb") as f:
+                        f.write(all_messages)
                     print_usage_summary(run.result.usage())
 
         print("")
@@ -203,6 +233,8 @@ async def main(workspace_home: str) -> None:
         print("User Turn")
         print("-" * 81)
         print("")
+    except UsageLimitExceeded as e:
+        print(f"Execution aborted due to usage limit exceeded: {e}")
     except Exception as e:
         # Handle any exceptions that occur during LLM execution
         print(f"\n\n❌ Error: {str(e)}")

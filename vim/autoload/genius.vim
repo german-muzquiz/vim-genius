@@ -714,7 +714,7 @@ function! s:show_file_diff() abort
 endfunction
 
 function! genius#inject_prompt() abort
-    let l:prompts = ['Do change', 'Update project context', 'Create tasks']
+    let l:prompts = ['Small change', 'Update project context', 'Create tasks']
 
     call fzf#run({
         \ 'source':  l:prompts,
@@ -730,8 +730,8 @@ function! s:on_prompt_selected(prompt_name) abort
         let l:prompt = s:get_prompt('INIT_PROJECT_PROMPT')
     elseif a:prompt_name == 'Create tasks'
         let l:prompt = s:get_prompt('CREATE_TASKS_PROMPT')
-    elseif a:prompt_name == 'Do change'
-        let l:prompt = s:get_prompt('DO_CHANGE_PROMPT')
+    elseif a:prompt_name == 'Small change'
+        let l:prompt = s:get_prompt('SMALL_CHANGE_PROMPT')
     endif
     call add(l:prompt, '')
 

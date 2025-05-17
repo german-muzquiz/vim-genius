@@ -37,7 +37,7 @@ class GeniusFilesystemMCP(MCPServerStdio):
 
     def __init__(self, *args, **kwargs):
         deps = kwargs.pop("deps", None)
-        self.ctx = RunContext(deps=deps, model=TestModel(), usage=Usage())
+        self.ctx = RunContext(deps=deps, model=TestModel(), usage=Usage(), prompt="")
         super().__init__(*args, **kwargs)
 
     @override

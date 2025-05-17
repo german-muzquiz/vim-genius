@@ -74,13 +74,6 @@ async def inject_entry(entry: str, workspace_home: str) -> Dict[str, Union[str, 
     entry = entry.strip()
     content: Union[str, BinaryContent]
 
-    # Url loading
-    if entry.startswith("http:"):
-        content = await load_url_content(entry)
-        result[entry] = content
-        return result
-
-    # File loading
     if not os.path.isabs(entry):
         entry = os.path.join(workspace_home, entry)
     if os.path.isdir(entry):
@@ -110,20 +103,16 @@ async def inject_context(user_input: str, workspace_home: str) -> list[UserConte
     tokens = re.findall(r"@(\S+)", user_input)
     tokens.append(".ai")
     file_injection_chunks: list[str] = []
-    url_injection_chunks: list[str] = []
     binary_files: list[BinaryContent] = []
     for token in tokens:
         context = await inject_entry(token, workspace_home)
         for file_path, content in context.items():
-            if file_path.startswith("http"):
-                url_injection_chunks.append(f"  <web_resource url={file_path}>\n{content}\n  </web_resource>")
+            if file_path.startswith("/workspace/"):
+                file_path = file_path[len("/workspace/") :]  # noqa: PLW2901
+            if isinstance(content, str):
+                file_injection_chunks.append(f"  <project_file filename={file_path}>\n{content}\n  </project_file>")
             else:
-                if file_path.startswith("/workspace/"):
-                    file_path = file_path[len("/workspace/") :]  # noqa: PLW2901
-                if isinstance(content, str):
-                    file_injection_chunks.append(f"  <project_file filename={file_path}>\n{content}\n  </project_file>")
-                else:
-                    binary_files.append(content)
+                binary_files.append(content)
 
     # Remove all @tokens from the original user prompt.
     adjusted_prompt: str = re.sub(r"@\S+", "", user_input)
@@ -134,16 +123,6 @@ async def inject_context(user_input: str, workspace_home: str) -> list[UserConte
         adjusted_prompt += "<project_files>"
         adjusted_prompt += "\n" + "\n".join(file_injection_chunks)
         adjusted_prompt += "\n</project_files>"
-    if url_injection_chunks:
-        adjusted_prompt += "<web_resources>"
-        adjusted_prompt += "\n" + "\n".join(url_injection_chunks)
-        adjusted_prompt += "\n</web_resources>"
-
-    # Include in the context the list of files in the workspace
-    # workspace_files = get_workspace_files(workspace_home)
-    # adjusted_prompt += "<workspace_file_listing>"
-    # adjusted_prompt += "\n" + "\n".join(workspace_files)
-    # adjusted_prompt += "\n</workspace_file_listing>"
 
     result: list[UserContent] = []
     result.append(adjusted_prompt)
